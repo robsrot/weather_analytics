@@ -38,61 +38,91 @@ An end-to-end analytics engineering project built with dbt, DuckDB, and Streamli
 
 ## Setup
 
-### 1. Install dependencies
+### Prerequisites
+
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) — Python package manager (replaces pip + venv)
+- Python 3.10–3.12 — uv installs the right version automatically
+- Git
+
+### 1. Clone the repository
+
+```bash
+git clone <repo-url>
+cd weather_analytics
+```
+
+### 2. Install Python dependencies
 
 ```bash
 uv sync
 ```
 
-Or with pip:
+This creates a `.venv` and installs everything from `pyproject.toml` (dbt, DuckDB, Streamlit, Pandas, Plotly).
+
+> **No uv?** Use pip instead:
+> ```bash
+> pip install -r requirements.txt
+> pip install dbt-core dbt-duckdb
+> ```
+
+### 3. Install dbt packages
 
 ```bash
-pip install -r requirements.txt
-pip install dbt-core dbt-duckdb
+uv run dbt deps --profiles-dir .
 ```
 
-### 2. Install dbt packages
+This installs `dbt_utils` and `dbt_expectations` into `dbt_packages/`.
+
+### 4. Verify the dbt connection
 
 ```bash
-dbt deps
+uv run dbt debug --profiles-dir .
 ```
 
-### 3. Extract data from the API
+You should see `All checks passed!` at the end. If not, check that you are running the command from inside the `weather_analytics/` folder.
 
-Default cities are Madrid, Barcelona, Valencia, Sevilla, Bilbao. You can change them:
+### 5. Extract data from the API
 
 ```bash
 uv run python scripts/extract_open_meteo.py
-# or with custom cities:
-uv run python scripts/extract_open_meteo.py --cities Madrid Barcelona Paris Berlin Lisbon --past-days 60
 ```
 
-Output files written to `data/raw/open_meteo/`:
+This pulls data for Madrid, Barcelona, Valencia, Sevilla, and Bilbao and writes four CSV files to `data/raw/open_meteo/`:
+
 - `raw_locations.csv`
 - `raw_weather_daily.csv`
 - `raw_forecast_daily.csv`
 - `raw_air_quality_hourly.csv`
 
-### 4. Load data into DuckDB
+To use different cities or a longer history:
+
+```bash
+uv run python scripts/extract_open_meteo.py --cities Madrid Barcelona Paris Berlin Lisbon --past-days 60
+```
+
+### 6. Load data into DuckDB
 
 ```bash
 uv run python load_db.py
 ```
 
-This creates `weather.duckdb` with the four raw tables in the `main` schema.
+This creates `weather.duckdb` in the project root with all four raw tables in the `main` schema.
 
-### 5. Run dbt
-
-```bash
-dbt debug        # verify connection
-dbt build        # run all models + tests
-```
-
-### 6. Launch the dashboard
+### 7. Build all dbt models
 
 ```bash
-streamlit run streamlit_app/app.py
+uv run dbt build --profiles-dir .
 ```
+
+This runs and tests every model in DAG order (staging → intermediate → marts).
+
+### 8. Launch the dashboard
+
+```bash
+uv run streamlit run streamlit_app/app.py
+```
+
+> **Note**: `weather.duckdb` and the raw CSV files are gitignored. Every teammate must run steps 5 and 6 locally to generate them.
 
 ---
 
