@@ -1,0 +1,69 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: main
+    description: "Raw tables loaded from Open-Meteo CSV extracts via load_db.py."
+    tables:
+      - name: raw_locations
+        description: "One row per city. Geocoded location metadata from the Open-Meteo Geocoding API."
+        columns:
+          - name: location_id
+            description: "Unique identifier returned by the Geocoding API."
+          - name: city_name
+          - name: country
+          - name: country_code
+          - name: admin1
+          - name: latitude
+          - name: longitude
+          - name: timezone
+          - name: elevation
+          - name: population
+          - name: extracted_at
+
+      - name: raw_weather_daily
+        description: "One row per city per day. Recent daily weather from the Forecast API past_days parameter."
+        columns:
+          - name: location_id
+          - name: city_name
+          - name: country_code
+          - name: date
+          - name: temperature_2m_max
+          - name: temperature_2m_min
+          - name: temperature_2m_mean
+          - name: precipitation_sum
+          - name: rain_sum
+          - name: snowfall_sum
+          - name: wind_speed_10m_max
+          - name: extracted_at
+
+      - name: raw_forecast_daily
+        description: "One row per city per forecast date per extraction run. Includes extracted_at for forecast accuracy tracking."
+        columns:
+          - name: location_id
+          - name: city_name
+          - name: country_code
+          - name: date
+          - name: temperature_2m_max
+          - name: temperature_2m_min
+          - name: temperature_2m_mean
+          - name: precipitation_sum
+          - name: rain_sum
+          - name: snowfall_sum
+          - name: wind_speed_10m_max
+          - name: extracted_at
+
+      - name: raw_air_quality_hourly
+        description: "One row per city per hour. Air quality pollutant observations and European AQI."
+        columns:
+          - name: location_id
+          - name: city_name
+          - name: country_code
+          - name: timestamp
+          - name: pm10
+          - name: pm2_5
+          - name: carbon_monoxide
+          - name: nitrogen_dioxide
+          - name: ozone
+          - name: european_aqi
+          - name: extracted_at

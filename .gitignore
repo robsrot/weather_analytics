@@ -1,0 +1,21 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# dbt
+target/
+dbt_packages/
+logs/
+
+# DuckDB
+*.duckdb
+*.duckdb.wal
+
+# Raw data (regenerate with extract_open_meteo.py)
+data/raw/open_meteo/*.csv
+
+# Streamlit secrets
+.streamlit/secrets.toml
