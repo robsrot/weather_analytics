@@ -3,67 +3,168 @@ version: 2
 sources:
   - name: raw
     schema: main
-    description: "Raw tables loaded from Open-Meteo CSV extracts via load_db.py."
+    description: >
+      Raw tables loaded from Open-Meteo CSV extracts via load_db.py.
+      Data covers 12 destinations across 4 climate zones (Mediterranean, Alpine,
+      Nordic, Continental) to power a holiday-type recommender dashboard.
+
     tables:
       - name: raw_locations
-        description: "One row per city. Geocoded location metadata from the Open-Meteo Geocoding API."
+        description: >
+          One row per city. Geocoded location metadata from the Open-Meteo Geocoding API.
+          Each city is tagged with one or more holiday types in the dim_location mart model.
         columns:
           - name: location_id
-            description: "Unique identifier returned by the Geocoding API."
+            description: "Unique numeric identifier returned by the Geocoding API."
           - name: city_name
+            description: "City name as returned by the Geocoding API."
           - name: country
+            description: "Full country name (e.g. Norway)."
           - name: country_code
+            description: "ISO 3166-1 alpha-2 country code (e.g. NO)."
           - name: admin1
+            description: "First administrative division (region or state) the city belongs to."
           - name: latitude
+            description: "Latitude of the city in decimal degrees."
           - name: longitude
+            description: "Longitude of the city in decimal degrees."
           - name: timezone
+            description: "IANA timezone name for the city (e.g. Europe/Oslo)."
           - name: elevation
+            description: "Elevation above sea level in metres."
           - name: population
+            description: "Approximate population of the city."
           - name: extracted_at
+            description: "UTC timestamp when the extraction script was run."
 
       - name: raw_weather_daily
-        description: "One row per city per day. Recent daily weather from the Forecast API past_days parameter."
+        description: >
+          One row per city per day. Recent daily weather actuals from the Open-Meteo
+          Forecast API using the past_days parameter (default 30 days).
+          Used to score each city-day against holiday-type weather conditions.
         columns:
-          - name: location_id
-          - name: city_name
-          - name: country_code
-          - name: date
-          - name: temperature_2m_max
-          - name: temperature_2m_min
-          - name: temperature_2m_mean
-          - name: precipitation_sum
-          - name: rain_sum
-          - name: snowfall_sum
-          - name: wind_speed_10m_max
+          - name: source_name
+            description: "Always 'recent_weather'. Distinguishes this table from forecast rows."
           - name: extracted_at
+            description: "UTC timestamp when the extraction script was run."
+          - name: location_id
+            description: "Foreign key to raw_locations.location_id."
+          - name: city_name
+            description: "City name, denormalised from the geocoding step."
+          - name: country_code
+            description: "ISO 3166-1 alpha-2 country code."
+          - name: date
+            description: "Calendar date of the observation (YYYY-MM-DD)."
+          - name: latitude
+            description: "Latitude resolved by the weather API (may differ slightly from geocoding)."
+          - name: longitude
+            description: "Longitude resolved by the weather API."
+          - name: timezone
+            description: "IANA timezone used by the weather API for this location."
+          - name: temperature_2m_max
+            description: "Maximum air temperature at 2 metres above ground in degrees Celsius."
+          - name: temperature_2m_min
+            description: "Minimum air temperature at 2 metres above ground in degrees Celsius."
+          - name: temperature_2m_mean
+            description: "Mean air temperature at 2 metres above ground in degrees Celsius."
+          - name: apparent_temperature_max
+            description: "Maximum perceived ('feels like') temperature in degrees Celsius, accounting for humidity and wind chill."
+          - name: apparent_temperature_min
+            description: "Minimum perceived ('feels like') temperature in degrees Celsius."
+          - name: apparent_temperature_mean
+            description: "Mean perceived ('feels like') temperature in degrees Celsius. Used in comfort scoring instead of actual temperature."
+          - name: precipitation_sum
+            description: "Total precipitation (rain + showers + snow) in millimetres."
+          - name: rain_sum
+            description: "Total rainfall in millimetres."
+          - name: snowfall_sum
+            description: "Total snowfall in centimetres."
+          - name: wind_speed_10m_max
+            description: "Maximum wind speed at 10 metres above ground in km/h."
+          - name: sunshine_duration
+            description: "Number of seconds per day with direct sunshine. Divide by 3600 for hours. Used to score Beach, Cultural, and Wellness holiday types."
 
       - name: raw_forecast_daily
-        description: "One row per city per forecast date per extraction run. Includes extracted_at for forecast accuracy tracking."
+        description: >
+          One row per city per forecast date per extraction run. Pulled from the
+          Open-Meteo Forecast API (default 7 days ahead). Includes extracted_at
+          so multiple forecast runs can be compared over time for accuracy analysis.
         columns:
-          - name: location_id
-          - name: city_name
-          - name: country_code
-          - name: date
-          - name: temperature_2m_max
-          - name: temperature_2m_min
-          - name: temperature_2m_mean
-          - name: precipitation_sum
-          - name: rain_sum
-          - name: snowfall_sum
-          - name: wind_speed_10m_max
+          - name: source_name
+            description: "Always 'forecast'. Distinguishes this table from recent_weather rows."
           - name: extracted_at
+            description: "UTC timestamp of the forecast run. Use this to track different forecast snapshots."
+          - name: location_id
+            description: "Foreign key to raw_locations.location_id."
+          - name: city_name
+            description: "City name, denormalised from the geocoding step."
+          - name: country_code
+            description: "ISO 3166-1 alpha-2 country code."
+          - name: date
+            description: "Forecasted calendar date (YYYY-MM-DD)."
+          - name: latitude
+            description: "Latitude resolved by the weather API."
+          - name: longitude
+            description: "Longitude resolved by the weather API."
+          - name: timezone
+            description: "IANA timezone used by the weather API for this location."
+          - name: temperature_2m_max
+            description: "Forecasted maximum air temperature at 2 metres in degrees Celsius."
+          - name: temperature_2m_min
+            description: "Forecasted minimum air temperature at 2 metres in degrees Celsius."
+          - name: temperature_2m_mean
+            description: "Forecasted mean air temperature at 2 metres in degrees Celsius."
+          - name: apparent_temperature_max
+            description: "Forecasted maximum perceived ('feels like') temperature in degrees Celsius."
+          - name: apparent_temperature_min
+            description: "Forecasted minimum perceived ('feels like') temperature in degrees Celsius."
+          - name: apparent_temperature_mean
+            description: "Forecasted mean perceived ('feels like') temperature in degrees Celsius."
+          - name: precipitation_sum
+            description: "Forecasted total precipitation in millimetres."
+          - name: rain_sum
+            description: "Forecasted total rainfall in millimetres."
+          - name: snowfall_sum
+            description: "Forecasted total snowfall in centimetres."
+          - name: wind_speed_10m_max
+            description: "Forecasted maximum wind speed at 10 metres in km/h."
+          - name: sunshine_duration
+            description: "Forecasted seconds of direct sunshine per day."
 
       - name: raw_air_quality_hourly
-        description: "One row per city per hour. Air quality pollutant observations and European AQI."
+        description: >
+          One row per city per hour. Covers both historical (past_days) and forecast
+          hours from the Open-Meteo Air Quality API. Historical AQI is used to score
+          Nature, Wellness, and Cultural Sightseeing holiday types. The European AQI
+          scale runs from 0 (good) to 500 (extremely poor).
         columns:
-          - name: location_id
-          - name: city_name
-          - name: country_code
-          - name: timestamp
-          - name: pm10
-          - name: pm2_5
-          - name: carbon_monoxide
-          - name: nitrogen_dioxide
-          - name: ozone
-          - name: european_aqi
+          - name: source_name
+            description: "Always 'air_quality'."
           - name: extracted_at
+            description: "UTC timestamp when the extraction script was run."
+          - name: location_id
+            description: "Foreign key to raw_locations.location_id."
+          - name: city_name
+            description: "City name, denormalised from the geocoding step."
+          - name: country_code
+            description: "ISO 3166-1 alpha-2 country code."
+          - name: timestamp
+            description: "Hour of the observation as a local datetime (YYYY-MM-DDTHH:MM)."
+          - name: latitude
+            description: "Latitude resolved by the air quality API."
+          - name: longitude
+            description: "Longitude resolved by the air quality API."
+          - name: timezone
+            description: "IANA timezone used by the air quality API for this location."
+          - name: pm10
+            description: "Particulate matter smaller than 10 micrometres in micrograms per cubic metre."
+          - name: pm2_5
+            description: "Particulate matter smaller than 2.5 micrometres in micrograms per cubic metre."
+          - name: carbon_monoxide
+            description: "Carbon monoxide concentration in micrograms per cubic metre."
+          - name: nitrogen_dioxide
+            description: "Nitrogen dioxide concentration in micrograms per cubic metre."
+          - name: ozone
+            description: "Ozone concentration in micrograms per cubic metre."
+          - name: european_aqi
+            description: "European Air Quality Index (0–500). Used to flag good-air-quality days for Nature, Wellness, and Cultural Sightseeing holiday types."

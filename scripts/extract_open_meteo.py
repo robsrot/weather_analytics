@@ -1,5 +1,27 @@
 #!/usr/bin/env python3
-"""Extract starter Open-Meteo data for the group assignment.
+"""Extract Open-Meteo data for the Weather Analytics group assignment.
+
+Business question: "Based on weather, which destination is best for your type of holiday?"
+
+Holiday types covered:
+  Beach & Sun         — hot, dry, low wind
+  Nature & Hiking     — mild, clean air, green
+  City Break          — comfortable temp, low rain, decent air quality
+  Cultural Sightseeing— mild, dry, low wind (ideal for outdoor walking)
+  Wellness & Slow     — calm, clean air, mild
+  Extreme Sports      — wind is the feature (kiting, paragliding, surfing)
+
+Default cities span 10 countries and 4 climate zones for meaningful cross-destination comparison:
+  Tenerife, Tarifa, Barcelona (Spain) — hot/windy Mediterranean + Canary Islands
+  Lisbon (Portugal)                   — Atlantic coast
+  Dubrovnik (Croatia)                 — Adriatic coast
+  Rhodes (Greece)                     — Eastern Mediterranean island
+  Nice (France)                       — French Riviera
+  Chamonix (France)                   — Alpine
+  Bergen (Norway)                     — Nordic fjords
+  Reykjavik (Iceland)                 — Subarctic, extreme wind
+  Prague (Czech Republic)             — Continental European city
+  Amsterdam (Netherlands)             — Northern European city
 
 The script writes four CSV files:
 - raw_locations.csv
@@ -30,15 +52,32 @@ GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 AIR_QUALITY_URL = "https://air-quality-api.open-meteo.com/v1/air-quality"
 
-DEFAULT_CITIES = ["Madrid", "Barcelona", "Valencia", "Sevilla", "Bilbao"]
+DEFAULT_CITIES = [
+    "Tenerife",    # Spain        — Canary Islands, warm year-round     | Beach, Wellness
+    "Tarifa",      # Spain        — windiest city in Europe              | Extreme Sports, Beach
+    "Barcelona",   # Spain        — Mediterranean beach city             | Beach, City Break
+    "Lisbon",      # Portugal     — Atlantic coast, mild                 | City Break, Cultural, Wellness
+    "Dubrovnik",   # Croatia      — Adriatic coast                       | Beach, Cultural
+    "Rhodes",      # Greece       — Eastern Mediterranean island         | Beach, Cultural
+    "Nice",        # France       — French Riviera                       | Beach, City Break
+    "Chamonix",    # France       — Alpine, paragliding capital          | Nature, Extreme Sports
+    "Bergen",      # Norway       — Nordic fjords, clean air             | Nature, Wellness
+    "Reykjavik",   # Iceland      — Subarctic, extreme wind              | Extreme Sports, Nature
+    "Prague",      # Czech Rep.   — continental European city            | City Break, Cultural
+    "Amsterdam",   # Netherlands  — northern European city               | City Break
+]
 DEFAULT_DAILY_WEATHER_VARIABLES = [
     "temperature_2m_max",
     "temperature_2m_min",
     "temperature_2m_mean",
+    "apparent_temperature_max",
+    "apparent_temperature_min",
+    "apparent_temperature_mean",
     "precipitation_sum",
     "rain_sum",
     "snowfall_sum",
     "wind_speed_10m_max",
+    "sunshine_duration",
 ]
 DEFAULT_AIR_QUALITY_VARIABLES = [
     "pm10",
@@ -237,12 +276,15 @@ def fetch_forecast(
     return build_daily_rows(payload, location, extracted_at, "forecast")
 
 
-def fetch_air_quality(location: dict[str, Any], extracted_at: str) -> list[dict[str, Any]]:
+def fetch_air_quality(
+    location: dict[str, Any], past_days: int, extracted_at: str
+) -> list[dict[str, Any]]:
     payload = get_json(
         AIR_QUALITY_URL,
         {
             "latitude": location["latitude"],
             "longitude": location["longitude"],
+            "past_days": past_days,
             "hourly": ",".join(DEFAULT_AIR_QUALITY_VARIABLES),
             "timezone": location["timezone"] or "auto",
         },
@@ -288,7 +330,7 @@ def main() -> int:
         forecast_daily_rows.extend(fetch_forecast(location, args.forecast_days, extracted_at))
         time.sleep(args.pause_seconds)
 
-        air_quality_hourly_rows.extend(fetch_air_quality(location, extracted_at))
+        air_quality_hourly_rows.extend(fetch_air_quality(location, args.past_days, extracted_at))
         time.sleep(args.pause_seconds)
 
     write_csv(output_dir / "raw_locations.csv", locations)
