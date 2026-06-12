@@ -1,0 +1,43 @@
+version: 2
+
+models:
+  - name: stg_forecast_daily
+    description: Daily weather forecasts per city from the Open-Meteo Forecast API. One row per city per forecast date per extraction run, enabling forecast-vs-actual accuracy analysis.
+    columns:
+      - name: location_id
+        description: Foreign key to stg_locations.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_locations')
+              field: location_id
+      - name: city_name
+        description: City name.
+        tests:
+          - not_null
+      - name: country_code
+        description: ISO 3166-1 alpha-2 country code.
+        tests:
+          - not_null
+      - name: date
+        description: The calendar date being forecast.
+        tests:
+          - not_null
+      - name: temperature_2m_max
+        description: Forecast maximum air temperature at 2 m in degrees Celsius.
+      - name: temperature_2m_min
+        description: Forecast minimum air temperature at 2 m in degrees Celsius.
+      - name: temperature_2m_mean
+        description: Forecast mean air temperature at 2 m in degrees Celsius.
+      - name: precipitation_sum
+        description: Forecast total precipitation in millimetres.
+      - name: rain_sum
+        description: Forecast total rain in millimetres.
+      - name: snowfall_sum
+        description: Forecast total snowfall in centimetres.
+      - name: wind_speed_10m_max
+        description: Forecast maximum wind speed at 10 m in km/h.
+      - name: extracted_at
+        description: UTC timestamp when this forecast snapshot was extracted. Differentiates multiple forecast runs for the same date.
+        tests:
+          - not_null
