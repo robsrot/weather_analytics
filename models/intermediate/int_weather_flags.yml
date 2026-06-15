@@ -1,0 +1,73 @@
+version: 2
+
+models:
+  - name: int_weather_flags
+    description: >
+      Daily weather with boolean flags for extreme or notable conditions. One row per city per day.
+      A comfortable day means mean temperature between 18 and 25 °C, less than 5 mm of precipitation,
+      and max wind speed below 40 km/h.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - location_id
+            - date
+    columns:
+      - name: location_id
+        description: Foreign key to stg_locations.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_locations')
+              field: location_id
+      - name: city_name
+        description: City name.
+        tests:
+          - not_null
+      - name: country_code
+        description: ISO 3166-1 alpha-2 country code.
+        tests:
+          - not_null
+      - name: country
+        description: Full country name.
+      - name: date
+        description: Calendar date of the observation.
+        tests:
+          - not_null
+      - name: temperature_2m_max
+        description: Maximum air temperature at 2 m in degrees Celsius.
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: -50
+              max_value: 60
+      - name: temperature_2m_min
+        description: Minimum air temperature at 2 m in degrees Celsius.
+      - name: temperature_2m_mean
+        description: Mean air temperature at 2 m in degrees Celsius.
+      - name: precipitation_sum
+        description: Total precipitation in millimetres.
+      - name: rain_sum
+        description: Total rain and showers in millimetres.
+      - name: snowfall_sum
+        description: Total snowfall in centimetres of fresh snow.
+      - name: wind_speed_10m_max
+        description: Maximum wind speed at 10 m in km/h.
+      - name: is_extreme_heat
+        description: True when daily maximum temperature exceeds 35 °C.
+        tests:
+          - not_null
+      - name: is_heavy_rain
+        description: True when total precipitation exceeds 20 mm.
+        tests:
+          - not_null
+      - name: is_windy
+        description: True when maximum wind speed exceeds 50 km/h.
+        tests:
+          - not_null
+      - name: is_snow_day
+        description: True when any snowfall is recorded.
+        tests:
+          - not_null
+      - name: is_comfortable_day
+        description: True when mean temp is 18–25 °C, precipitation is under 5 mm, and max wind is under 40 km/h.
+        tests:
+          - not_null

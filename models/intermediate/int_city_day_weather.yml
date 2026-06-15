@@ -1,0 +1,56 @@
+version: 2
+
+models:
+  - name: int_city_day_weather
+    description: Daily weather actuals joined with city location metadata. One row per city per day.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - location_id
+            - date
+    columns:
+      - name: location_id
+        description: Foreign key to stg_locations.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_locations')
+              field: location_id
+      - name: city_name
+        description: City name.
+        tests:
+          - not_null
+      - name: country_code
+        description: ISO 3166-1 alpha-2 country code.
+        tests:
+          - not_null
+      - name: country
+        description: Full country name.
+      - name: latitude
+        description: Latitude of the city in decimal degrees.
+      - name: longitude
+        description: Longitude of the city in decimal degrees.
+      - name: timezone
+        description: IANA timezone string for the city (e.g. Europe/Madrid).
+      - name: elevation
+        description: Elevation above sea level in metres.
+      - name: population
+        description: City population estimate.
+      - name: date
+        description: Calendar date of the observation.
+        tests:
+          - not_null
+      - name: temperature_2m_max
+        description: Maximum air temperature at 2 m in degrees Celsius.
+      - name: temperature_2m_min
+        description: Minimum air temperature at 2 m in degrees Celsius.
+      - name: temperature_2m_mean
+        description: Mean air temperature at 2 m in degrees Celsius.
+      - name: precipitation_sum
+        description: Total precipitation (rain + showers + snowfall water equivalent) in millimetres.
+      - name: rain_sum
+        description: Total rain and showers in millimetres.
+      - name: snowfall_sum
+        description: Total snowfall in centimetres of fresh snow.
+      - name: wind_speed_10m_max
+        description: Maximum wind speed at 10 m in km/h.
