@@ -1,0 +1,52 @@
+version: 2
+
+models:
+  - name: int_air_quality_daily
+    description: Hourly air quality observations aggregated to one row per city per day.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - location_id
+            - date
+    columns:
+      - name: location_id
+        description: Foreign key to stg_locations.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_locations')
+              field: location_id
+      - name: city_name
+        description: City name.
+        tests:
+          - not_null
+      - name: country_code
+        description: ISO 3166-1 alpha-2 country code.
+        tests:
+          - not_null
+      - name: date
+        description: Calendar date of the aggregated observations.
+        tests:
+          - not_null
+      - name: avg_pm10
+        description: Daily average PM10 particulate matter concentration in µg/m³.
+      - name: avg_pm2_5
+        description: Daily average PM2.5 particulate matter concentration in µg/m³.
+      - name: avg_carbon_monoxide
+        description: Daily average carbon monoxide concentration in µg/m³.
+      - name: avg_nitrogen_dioxide
+        description: Daily average nitrogen dioxide concentration in µg/m³.
+      - name: avg_ozone
+        description: Daily average ozone concentration in µg/m³.
+      - name: avg_european_aqi
+        description: Daily average European Air Quality Index (0–500). Higher values indicate worse air quality.
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 500
+      - name: max_european_aqi
+        description: Highest European Air Quality Index recorded during the day (0–500).
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 500
