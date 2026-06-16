@@ -1,6 +1,6 @@
 with source as (
     select * from {{ ref('stg_locations') }}
-),
+) ,
 
 final as (
     select
