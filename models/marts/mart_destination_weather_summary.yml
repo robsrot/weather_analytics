@@ -1,0 +1,144 @@
+version: 2
+
+models:
+  - name: mart_destination_weather_summary
+    description: >
+      One row per city summarising weather and air quality metrics over the full extraction period.
+      Includes boolean flags indicating which holiday types each city is suited for.
+      Primary model used by the dashboard to rank and compare destinations.
+    columns:
+      - name: location_id
+        description: Primary key. Foreign key to dim_location.
+        tests:
+          - unique
+          - not_null
+          - relationships:
+              to: ref('dim_location')
+              field: location_id
+      - name: city_name
+        description: City name.
+        tests:
+          - not_null
+      - name: country_code
+        description: ISO 3166-1 alpha-2 country code.
+        tests:
+          - not_null
+      - name: country
+        description: Full country name.
+      - name: total_days
+        description: Number of days in the observation period.
+        tests:
+          - not_null
+      - name: avg_temp_c
+        description: Average daily mean temperature over the period in degrees Celsius.
+        tests:
+          - not_null
+      - name: max_temp_c
+        description: Highest daily maximum temperature recorded in degrees Celsius.
+      - name: min_temp_c
+        description: Lowest daily minimum temperature recorded in degrees Celsius.
+      - name: avg_daily_precipitation_mm
+        description: Average daily precipitation over the period in millimetres.
+      - name: avg_wind_speed_kmh
+        description: Average daily maximum wind speed over the period in km/h.
+      - name: max_wind_speed_kmh
+        description: Highest daily maximum wind speed recorded in km/h.
+      - name: comfortable_days
+        description: Number of comfortable days in the period.
+        tests:
+          - not_null
+      - name: comfortable_day_pct
+        description: Percentage of days that were comfortable (0–100).
+        tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 100
+      - name: extreme_heat_days
+        description: Number of days with maximum temperature above 35 °C.
+        tests:
+          - not_null
+      - name: heavy_rain_days
+        description: Number of days with precipitation above 20 mm.
+        tests:
+          - not_null
+      - name: windy_days
+        description: Number of days with maximum wind speed above 50 km/h.
+        tests:
+          - not_null
+      - name: snow_days
+        description: Number of days with any snowfall.
+        tests:
+          - not_null
+      - name: avg_aqi
+        description: Average European Air Quality Index over the period (0–500).
+        tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 500
+      - name: worst_aqi
+        description: Highest daily maximum European Air Quality Index recorded over the period.
+        tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 500
+      - name: beach_score
+        description: >
+          Beach & Sun suitability score (0–100).
+          Temperature component (50 pts): temperatures between 15–35 °C score proportionally.
+          Low rain component (30 pts): based on proportion of heavy rain days.
+          Low wind component (20 pts): wind speeds above 60 km/h score zero.
+        tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 100
+      - name: hiking_score
+        description: >
+          Nature & Hiking suitability score (0–100).
+          Mild temperature component (50 pts): ideal temperature is 15 °C; score falls as temperature deviates by more than 20 °C.
+          Clean air component (50 pts): average AQI above 150 scores zero.
+        tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 100
+      - name: city_break_score
+        description: >
+          City Break suitability score (0–100).
+          Comfortable days component (50 pts): based on comfortable_day_pct.
+          Air quality component (30 pts): average AQI above 100 scores zero.
+          Low rain component (20 pts): based on proportion of heavy rain days.
+        tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 100
+      - name: extreme_sports_score
+        description: >
+          Extreme Sports suitability score (0–100).
+          Average wind component (60 pts): average wind speed of 40 km/h or above scores full points.
+          Peak wind component (40 pts): maximum wind speed of 80 km/h or above scores full points.
+        tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 100
+      - name: is_beach_destination
+        description: True when average temperature exceeds 22 °C and fewer than 15% of days had heavy rain.
+        tests:
+          - not_null
+      - name: is_hiking_destination
+        description: True when average temperature is between 8 and 18 °C and average AQI is below 60.
+        tests:
+          - not_null
+      - name: is_city_break_destination
+        description: True when more than 40% of days were comfortable and average AQI is below 75.
+        tests:
+          - not_null
+      - name: is_extreme_sports_destination
+        description: True when average wind speed exceeds 30 km/h.
+        tests:
+          - not_null
