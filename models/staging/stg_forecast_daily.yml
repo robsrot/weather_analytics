@@ -3,6 +3,12 @@ version: 2
 models:
   - name: stg_forecast_daily
     description: Daily weather forecasts per city from the Open-Meteo Forecast API. One row per city per forecast date per extraction run, enabling forecast-vs-actual accuracy analysis.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - location_id
+            - date
+            - extracted_at
     columns:
       - name: location_id
         description: Foreign key to stg_locations.
@@ -19,24 +25,50 @@ models:
         description: ISO 3166-1 alpha-2 country code.
         tests:
           - not_null
+          - accepted_values:
+              values: ['ES', 'PT', 'HR', 'GR', 'FR', 'NO', 'IS', 'CZ', 'NL']
       - name: date
         description: The calendar date being forecast.
         tests:
           - not_null
       - name: temperature_2m_max
         description: Forecast maximum air temperature at 2 m in degrees Celsius.
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: -50
+              max_value: 60
       - name: temperature_2m_min
         description: Forecast minimum air temperature at 2 m in degrees Celsius.
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: -50
+              max_value: 60
       - name: temperature_2m_mean
         description: Forecast mean air temperature at 2 m in degrees Celsius.
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: -50
+              max_value: 60
       - name: precipitation_sum
         description: Forecast total precipitation in millimetres.
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
       - name: rain_sum
         description: Forecast total rain in millimetres.
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
       - name: snowfall_sum
         description: Forecast total snowfall in centimetres.
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
       - name: wind_speed_10m_max
         description: Forecast maximum wind speed at 10 m in km/h.
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
       - name: extracted_at
         description: UTC timestamp when this forecast snapshot was extracted. Differentiates multiple forecast runs for the same date.
         tests:
