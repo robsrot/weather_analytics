@@ -1,0 +1,69 @@
+version: 2
+
+models:
+  - name: fct_air_quality_city_day
+    description: Daily air quality fact table. One row per city per day aggregated from hourly observations.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - location_id
+            - date
+    columns:
+      - name: air_quality_day_id
+        description: Surrogate primary key generated from location_id and date.
+        tests:
+          - unique
+          - not_null
+      - name: location_id
+        description: Foreign key to dim_location.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_location')
+              field: location_id
+      - name: city_name
+        description: City name.
+        tests:
+          - not_null
+      - name: country_code
+        description: ISO 3166-1 alpha-2 country code.
+        tests:
+          - not_null
+      - name: date
+        description: Calendar date of the observations.
+        tests:
+          - not_null
+      - name: avg_pm10
+        description: Daily average PM10 concentration in µg/m³.
+        tests:
+          - not_null
+      - name: avg_pm2_5
+        description: Daily average PM2.5 concentration in µg/m³.
+        tests:
+          - not_null
+      - name: avg_carbon_monoxide
+        description: Daily average carbon monoxide concentration in µg/m³.
+        tests:
+          - not_null
+      - name: avg_nitrogen_dioxide
+        description: Daily average nitrogen dioxide concentration in µg/m³.
+        tests:
+          - not_null
+      - name: avg_ozone
+        description: Daily average ozone concentration in µg/m³.
+        tests:
+          - not_null
+      - name: avg_european_aqi
+        description: Daily average European Air Quality Index (0–500).
+        tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 500
+      - name: max_european_aqi
+        description: Highest European Air Quality Index recorded during the day (0–500).
+        tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 500

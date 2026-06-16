@@ -1,0 +1,37 @@
+version: 2
+
+models:
+  - name: dim_location
+    description: Location dimension. One row per city with geographic metadata.
+    columns:
+      - name: location_id
+        description: Primary key. Unique identifier from the Open-Meteo Geocoding API.
+        tests:
+          - unique
+          - not_null
+      - name: city_name
+        description: City name.
+        tests:
+          - not_null
+      - name: country
+        description: Full country name.
+      - name: country_code
+        description: ISO 3166-1 alpha-2 country code.
+        tests:
+          - not_null
+      - name: admin1
+        description: First-level administrative area such as a province or state.
+      - name: latitude
+        description: Latitude of the city in decimal degrees.
+        tests:
+          - not_null
+      - name: longitude
+        description: Longitude of the city in decimal degrees.
+        tests:
+          - not_null
+      - name: timezone
+        description: IANA timezone string for the city.
+      - name: elevation
+        description: Elevation above sea level in metres.
+      - name: population
+        description: City population estimate.
