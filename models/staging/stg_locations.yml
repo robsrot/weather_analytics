@@ -19,16 +19,24 @@ models:
         description: ISO 3166-1 alpha-2 country code.
         tests:
           - not_null
+          - accepted_values:
+              values: ['ES', 'PT', 'HR', 'GR', 'FR', 'NO', 'IS', 'CZ', 'NL']
       - name: admin1
         description: First-level administrative area such as a province or state.
       - name: latitude
         description: Latitude of the city in decimal degrees.
         tests:
           - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: -90
+              max_value: 90
       - name: longitude
         description: Longitude of the city in decimal degrees.
         tests:
           - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: -180
+              max_value: 180
       - name: timezone
         description: IANA timezone string for the city (e.g. Europe/Madrid).
       - name: elevation
