@@ -96,6 +96,18 @@ final as (
             least(weather_summary.avg_wind_speed_kmh / 40.0, 1) * 60
             + least(weather_summary.max_wind_speed_kmh / 80.0, 1) * 40
         )), 1) as extreme_sports_score,
+        round(least(100, greatest(0,
+            greatest(1 - abs(weather_summary.avg_temp_c - 20.0) / 10.0, 0) * 40
+            + (1 - weather_summary.heavy_rain_days * 1.0 / weather_summary.total_days) * 25
+            + greatest(1 - aqi_summary.avg_aqi / 80.0, 0) * 20
+            + greatest(1 - weather_summary.avg_wind_speed_kmh / 50.0, 0) * 15
+        )), 1) as cultural_score,
+        round(least(100, greatest(0,
+            greatest(1 - abs(weather_summary.avg_temp_c - 21.5) / 7.0, 0) * 35
+            + (1 - weather_summary.heavy_rain_days * 1.0 / weather_summary.total_days) * 25
+            + greatest(1 - aqi_summary.avg_aqi / 50.0, 0) * 25
+            + greatest(1 - weather_summary.avg_wind_speed_kmh / 40.0, 0) * 15
+        )), 1) as wellness_score,
         case
             when weather_summary.avg_temp_c > 22
                 and weather_summary.heavy_rain_days * 1.0 / weather_summary.total_days < 0.15
@@ -118,7 +130,23 @@ final as (
             when weather_summary.avg_wind_speed_kmh > 30
             then true
             else false
-        end as is_extreme_sports_destination
+        end as is_extreme_sports_destination,
+        case
+            when weather_summary.avg_temp_c between 14 and 26
+                and weather_summary.avg_daily_precipitation_mm < 8
+                and aqi_summary.avg_aqi < 50
+                and weather_summary.avg_wind_speed_kmh < 30
+            then true
+            else false
+        end as is_cultural_destination,
+        case
+            when weather_summary.avg_temp_c between 17 and 26
+                and weather_summary.avg_daily_precipitation_mm < 8
+                and aqi_summary.avg_aqi < 35
+                and weather_summary.avg_wind_speed_kmh < 25
+            then true
+            else false
+        end as is_wellness_destination
     from weather_summary
     left join aqi_summary using (location_id)
 )
@@ -147,8 +175,12 @@ select
     hiking_score,
     city_break_score,
     extreme_sports_score,
+    cultural_score,
+    wellness_score,
     is_beach_destination,
     is_hiking_destination,
     is_city_break_destination,
-    is_extreme_sports_destination
+    is_extreme_sports_destination,
+    is_cultural_destination,
+    is_wellness_destination
 from final
