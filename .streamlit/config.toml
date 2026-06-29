@@ -1,0 +1,6 @@
+[theme]
+primaryColor          = "#FF6B5B"   # coral CTA / accent
+backgroundColor       = "#F7FAFC"   # app background
+secondaryBackgroundColor = "#FFFFFF" # card / widget surface
+textColor             = "#0E3A4D"   # deep-ocean primary text
+font                  = "sans serif" # overridden to Poppins/Inter via CSS
