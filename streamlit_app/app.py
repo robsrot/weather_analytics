@@ -714,6 +714,16 @@ div[data-testid="stButton"] button[kind="secondary"]:hover {
 .footer a { color: #14B8A6; text-decoration: none; }
 .footer a:hover { text-decoration: underline; }
 
+/* ── Filter card — override st.container(border=True) styling ─────────── */
+[data-testid="stVerticalBlockBorderWrapper"] {
+    border: 1px solid #E2E8F0 !important;
+    border-radius: 14px !important;
+    box-shadow: 0 2px 12px rgba(14,58,77,.08) !important;
+    background: #FFFFFF !important;
+    padding: 24px 28px 20px 28px !important;
+    margin-bottom: 28px !important;
+}
+
 /* ── Utilities ────────────────────────────────────────────────────────── */
 .mt-0 { margin-top: 0 !important; }
 .mb-16 { margin-bottom: 16px; }
@@ -785,53 +795,49 @@ if "holiday_type" not in st.session_state:
 
 
 # ─── Filter card ─────────────────────────────────────────────────────────────
-st.markdown('<div class="filter-card">', unsafe_allow_html=True)
+with st.container(border=True):
+    st.markdown('<p class="filter-label">Holiday type</p>', unsafe_allow_html=True)
+    btn_cols = st.columns(6, gap="small")
+    for col, ht in zip(btn_cols, HOLIDAY_TYPES):
+        with col:
+            is_active = st.session_state.holiday_type == ht
+            if st.button(
+                ht,
+                key=f"ht_{ht}",
+                use_container_width=True,
+                type="primary" if is_active else "secondary",
+            ):
+                st.session_state.holiday_type = ht
+                st.rerun()
 
-st.markdown('<p class="filter-label">Holiday type</p>', unsafe_allow_html=True)
-btn_cols = st.columns(6, gap="small")
-for col, ht in zip(btn_cols, HOLIDAY_TYPES):
-    with col:
-        is_active = st.session_state.holiday_type == ht
-        if st.button(
-            ht,
-            key=f"ht_{ht}",
-            use_container_width=True,
-            type="primary" if is_active else "secondary",
-        ):
-            st.session_state.holiday_type = ht
-            st.rerun()
+    st.markdown("<div style='margin-top:4px;'></div>", unsafe_allow_html=True)
 
-st.markdown("<div style='margin-top:16px;'>", unsafe_allow_html=True)
-
-filter_cols = st.columns([3, 4, 2], gap="medium")
-with filter_cols[0]:
-    all_countries = ["All countries"] + sorted(summary_df["country"].unique().tolist())
-    selected_country = st.selectbox(
-        "Country",
-        options=all_countries,
-        label_visibility="visible",
-    )
-with filter_cols[1]:
-    if selected_country == "All countries":
-        city_options = sorted(summary_df["city_name"].unique().tolist())
-    else:
-        city_options = sorted(
-            summary_df.loc[summary_df["country"] == selected_country, "city_name"]
-            .unique().tolist()
+    filter_cols = st.columns([3, 4, 2], gap="medium")
+    with filter_cols[0]:
+        all_countries = ["All countries"] + sorted(summary_df["country"].unique().tolist())
+        selected_country = st.selectbox(
+            "Country",
+            options=all_countries,
+            label_visibility="visible",
         )
-    selected_cities = st.multiselect(
-        "City (leave blank for all)",
-        options=city_options,
-        label_visibility="visible",
-    )
-with filter_cols[2]:
-    st.markdown("<div class='cta-btn' style='margin-top:24px;'>", unsafe_allow_html=True)
-    if st.button("🔍 Find destinations", use_container_width=True):
-        st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
-
-st.markdown("</div>", unsafe_allow_html=True)
-st.markdown("</div>", unsafe_allow_html=True)  # close .filter-card
+    with filter_cols[1]:
+        if selected_country == "All countries":
+            city_options = sorted(summary_df["city_name"].unique().tolist())
+        else:
+            city_options = sorted(
+                summary_df.loc[summary_df["country"] == selected_country, "city_name"]
+                .unique().tolist()
+            )
+        selected_cities = st.multiselect(
+            "City (leave blank for all)",
+            options=city_options,
+            label_visibility="visible",
+        )
+    with filter_cols[2]:
+        st.markdown("<div class='cta-btn' style='margin-top:24px;'>", unsafe_allow_html=True)
+        if st.button("🔍 Find destinations", use_container_width=True):
+            st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ─── Filtering & ranking ──────────────────────────────────────────────────────
