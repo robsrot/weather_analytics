@@ -153,6 +153,8 @@ SCORE_LABELS = {
 }
 CITY_PALETTE  = ["#218208", "#FF6B5B", "#0E3A4D"]
 TYPE_PALETTE  = ["#4FC3D9", "#FFC83D", "#94A3B8", "#F97316", "#A78BFA", "#EC4899"]
+# Compare-cities multiselect can exceed 3 cities, so extend beyond CITY_PALETTE.
+CITY_COMPARE_PALETTE = CITY_PALETTE + TYPE_PALETTE
 
 SORT_OPTIONS = {
     "Warmest":  ("avg_temp_c",                 False),
@@ -245,11 +247,49 @@ def load_daily() -> pd.DataFrame:
     ).df()
 
 
+@st.cache_data(show_spinner=False)
+def load_locations() -> pd.DataFrame:
+    """Lat/lon per city, from the existing dim_location mart (no model changes)."""
+    return _get_con().execute(
+        "select location_id, latitude, longitude from marts.dim_location"
+    ).df()
+
+
+@st.cache_data(show_spinner=False)
+def load_forecast() -> pd.DataFrame:
+    """Latest forecast snapshot per city/date, from the existing staging view
+    (stg_forecast_daily isn't promoted to a mart yet, so we dedupe here instead
+    of touching the dbt layer)."""
+    return _get_con().execute("""
+        select location_id, city_name, country_code, date,
+               temperature_2m_max, temperature_2m_min, temperature_2m_mean,
+               precipitation_sum, rain_sum, snowfall_sum,
+               wind_speed_10m_max, extracted_at
+        from staging.stg_forecast_daily
+        qualify row_number() over (
+            partition by location_id, date order by extracted_at desc
+        ) = 1
+        order by city_name, date
+    """).df()
+
+
+# ─── Pure helpers (no Streamlit calls — safe to define before page renders) ──
+
+def aqi_label(aqi: float) -> str:
+    """European AQI qualitative label: 0–20 Good · 20–40 Fair · 40–60 Moderate · 60–80 Poor · 80+ Very Poor."""
+    if aqi < 20:  return "Good"
+    if aqi < 40:  return "Fair"
+    if aqi < 60:  return "Moderate"
+    if aqi < 80:  return "Poor"
+    return "Very Poor"
+
 
 # ─── Load data (with graceful error) ─────────────────────────────────────────
 try:
-    summary_df = load_summary()
-    daily_df   = load_daily()
+    summary_df    = load_summary()
+    daily_df      = load_daily()
+    locations_df  = load_locations()
+    forecast_df   = load_forecast()
 except Exception as _e:
     st.error(
         f"**Could not connect to weather.duckdb** — run `uv run dbt build` first.\n\n"
@@ -509,6 +549,12 @@ label, .stButton button, .stSelectbox label,
 .badge-good   { background: rgba(33,130,8,.12); color: #218208; border: 1px solid rgba(33,130,8,.3); }
 .badge-low    { background: rgba(107,135,148,.10); color: #6B8794; border: 1px solid rgba(107,135,148,.25); }
 
+/* On image overlays the semi-transparent tinted badges are hard to read —
+   switch to solid fill with white text so they always pop over photos. */
+.card-overlay .badge-top  { background: #218208; color: #FFFFFF; border-color: transparent; }
+.card-overlay .badge-good { background: rgba(33,130,8,.80); color: #FFFFFF; border-color: transparent; }
+.card-overlay .badge-low  { background: rgba(14,58,77,.60);  color: #FFFFFF; border-color: transparent; }
+
 /* ── Widget focus overrides (Streamlit / BaseWeb) ──────────────────── */
 div[data-baseweb="select"] > div:focus-within {
     border-color: #218208 !important;
@@ -570,7 +616,8 @@ div[data-baseweb="select"] > div:focus-within {
     overflow: hidden;
     transition: transform 0.2s ease, box-shadow 0.2s ease;
     cursor: default;
-    height: 300px;
+    min-height: 280px;
+    height: auto;
 }
 .dest-card:hover {
     transform: translateY(-3px);
@@ -668,7 +715,7 @@ div[data-baseweb="select"] > div:focus-within {
 .footer a { color: #218208; text-decoration: none; }
 .footer a:hover { text-decoration: underline; }
 
-/* ── Filter card — override st.container(border=True) styling ─────────── */
+/* ── Bordered containers — override st.container(border=True) styling ─── */
 [data-testid="stVerticalBlockBorderWrapper"] {
     border: 1px solid #E2E8F0 !important;
     border-radius: 14px !important;
@@ -676,6 +723,19 @@ div[data-baseweb="select"] > div:focus-within {
     background: #FFFFFF !important;
     padding: 24px 28px 20px 28px !important;
     margin-bottom: 28px !important;
+}
+
+/* ── Filter bar — lighter, single-row variant of the bordered card ────── */
+[data-testid="stVerticalBlockBorderWrapper"].st-key-filter_bar,
+.st-key-filter_bar [data-testid="stVerticalBlockBorderWrapper"] {
+    border-radius: 10px !important;
+    box-shadow: 0 1px 6px rgba(14,58,77,.05) !important;
+    padding: 14px 22px !important;
+    margin-bottom: 24px !important;
+}
+.st-key-filter_bar .filter-section-label {
+    margin-bottom: 4px;
+    padding-bottom: 3px;
 }
 
 /* ── Utilities ────────────────────────────────────────────────────────── */
@@ -706,6 +766,106 @@ div[data-baseweb="select"] > div:focus-within {
     font-weight: 600;
     color: #0E3A4D;
     margin-bottom: 4px;
+}
+
+/* ── 7-day forecast strip ─────────────────────────────────────────────── */
+.forecast-strip {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+.forecast-card {
+    flex: 1;
+    min-width: 96px;
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 12px;
+    box-shadow: 0 2px 10px rgba(14,58,77,.06);
+    padding: 14px 8px 12px 8px;
+    text-align: center;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.forecast-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(14,58,77,.12);
+}
+.forecast-card.is-today {
+    border: 1.5px solid #218208;
+    background: rgba(33,130,8,.04);
+}
+.forecast-day {
+    font-family: 'Poppins', sans-serif;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #0E3A4D;
+    margin-bottom: 1px;
+}
+.forecast-date {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.68rem;
+    color: #94A3B8;
+    margin-bottom: 8px;
+}
+.forecast-icon {
+    font-size: 1.9rem;
+    line-height: 1.2;
+    margin-bottom: 4px;
+}
+.forecast-cond {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.68rem;
+    color: #6B8794;
+    margin-bottom: 8px;
+}
+.forecast-temp {
+    font-family: 'Poppins', sans-serif;
+    font-size: 0.92rem;
+    font-weight: 700;
+    color: #0E3A4D;
+}
+.forecast-temp .lo {
+    color: #94A3B8;
+    font-weight: 500;
+}
+.forecast-rain {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.66rem;
+    color: #4FC3D9;
+    margin-top: 4px;
+}
+
+/* ── KPI stat row ──────────────────────────────────────────────────────── */
+.kpi-row {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin: 16px 0 24px 0;
+}
+.kpi-card {
+    flex: 1;
+    min-width: 140px;
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 12px;
+    box-shadow: 0 2px 10px rgba(14,58,77,.06);
+    padding: 14px 18px;
+}
+.kpi-label {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #6B8794;
+    margin-bottom: 4px;
+}
+.kpi-value {
+    font-family: 'Poppins', sans-serif;
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: #0E3A4D;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -777,14 +937,14 @@ if st.session_state.sort_attr not in SORT_OPTIONS:
 def _activate_holiday():
     st.session_state.filter_mode = "holiday"
     st.session_state.holiday_type = st.session_state["_ht_select"]
-    st.session_state["_dest_country"] = "All countries"
+    st.session_state["_dest_country"] = []
     st.session_state["_dest_cities"] = []
 
 
 def _activate_sort():
     st.session_state.filter_mode = "sort"
     st.session_state.sort_attr = st.session_state["_sort_select"]
-    st.session_state["_dest_country"] = "All countries"
+    st.session_state["_dest_country"] = []
     st.session_state["_dest_cities"] = []
 
 
@@ -798,17 +958,24 @@ def _on_dest_city_change():
     st.session_state.filter_mode = "destination"
 
 
-# ─── Filter card (3 mutually-exclusive sections) ────────────────────────────
-with st.container(border=True):
+# ─── Filter bar (single row, 4 equal controls) ───────────────────────────────
+with st.container(border=True, key="filter_bar"):
     filter_mode = st.session_state.filter_mode
-    holiday_col, sort_col, destination_col = st.columns([2, 2, 3], gap="large")
+    holiday_tab_active      = filter_mode == "holiday"
+    sort_tab_active         = filter_mode == "sort"
+    destination_tab_active  = filter_mode == "destination"
+
+    def _label_color(active: bool) -> str:
+        return "#218208" if active else "#94A3B8"
+
+    holiday_col, sort_col, country_col, cities_col = st.columns(
+        [1.6, 1.6, 1.9, 1.9], gap="medium"
+    )
 
     # ── Holiday type ─────────────────────────────────────────
     with holiday_col:
-        holiday_tab_active    = filter_mode == "holiday"
-        holiday_label_color = "#218208" if holiday_tab_active else "#94A3B8"
         st.markdown(
-            f'<p class="filter-section-label" style="color:{holiday_label_color};">'
+            f'<p class="filter-section-label" style="color:{_label_color(holiday_tab_active)};">'
             'Holiday type</p>',
             unsafe_allow_html=True,
         )
@@ -827,10 +994,8 @@ with st.container(border=True):
 
     # ── Attribute ───────────────────────────────────────────
     with sort_col:
-        sort_tab_active    = filter_mode == "sort"
-        sort_label_color = "#218208" if sort_tab_active else "#94A3B8"
         st.markdown(
-            f'<p class="filter-section-label" style="color:{sort_label_color};">'
+            f'<p class="filter-section-label" style="color:{_label_color(sort_tab_active)};">'
             'Attribute</p>',
             unsafe_allow_html=True,
         )
@@ -848,30 +1013,36 @@ with st.container(border=True):
             on_change=_activate_sort,
         )
 
-    # ── Destination ─────────────────────────────────────────
-    with destination_col:
-        destination_tab_active    = filter_mode == "destination"
-        destination_label_color = "#218208" if destination_tab_active else "#94A3B8"
+    # ── Country ──────────────────────────────────────────────
+    with country_col:
         st.markdown(
-            f'<p class="filter-section-label" style="color:{destination_label_color};">'
-            'Destination</p>',
+            f'<p class="filter-section-label" style="color:{_label_color(destination_tab_active)};">'
+            'Country</p>',
             unsafe_allow_html=True,
         )
-        country_options = ["All countries"] + sorted(
-            summary_df["country"].unique().tolist()
-        )
-        selected_country = st.selectbox(
-            "Country",
+        country_options = sorted(summary_df["country"].unique().tolist())
+        selected_countries = st.multiselect(
+            "Country (leave blank for all)",
             country_options,
             key="_dest_country",
+            label_visibility="collapsed",
+            placeholder="All countries",
             on_change=_on_dest_country_change,
+        )
+
+    # ── Cities ───────────────────────────────────────────────
+    with cities_col:
+        st.markdown(
+            f'<p class="filter-section-label" style="color:{_label_color(destination_tab_active)};">'
+            'Cities</p>',
+            unsafe_allow_html=True,
         )
         available_cities = (
             sorted(summary_df["city_name"].unique().tolist())
-            if selected_country == "All countries"
+            if not selected_countries
             else sorted(
                 summary_df.loc[
-                    summary_df["country"] == selected_country, "city_name"
+                    summary_df["country"].isin(selected_countries), "city_name"
                 ].unique().tolist()
             )
         )
@@ -879,8 +1050,15 @@ with st.container(border=True):
             "Cities (leave blank for all)",
             available_cities,
             key="_dest_cities",
+            label_visibility="collapsed",
+            placeholder="All cities",
             on_change=_on_dest_city_change,
         )
+
+st.caption(
+    "💡 Country and Cities support multiple selections — pick more than one "
+    "to compare destinations side by side."
+)
 
 
 # ─── Filtering & ranking ──────────────────────────────────────────────────────
@@ -892,11 +1070,11 @@ flag_col      = meta["flag_col"]
 
 # Destination mode: filter by country / cities
 if filter_mode == "destination":
-    selected_country   = st.session_state.get("_dest_country", "All countries")
+    selected_countries = st.session_state.get("_dest_country", [])
     selected_cities = st.session_state.get("_dest_cities", [])
     filtered_destinations = summary_df.copy()
-    if selected_country != "All countries":
-        filtered_destinations = filtered_destinations[filtered_destinations["country"] == selected_country].copy()
+    if selected_countries:
+        filtered_destinations = filtered_destinations[filtered_destinations["country"].isin(selected_countries)].copy()
     if selected_cities:
         filtered_destinations = filtered_destinations[filtered_destinations["city_name"].isin(selected_cities)].copy()
 else:
@@ -915,8 +1093,11 @@ if filter_mode == "holiday":
 elif filter_mode == "sort":
     results_heading = f"Sorted by {st.session_state.sort_attr}"
 else:
-    selected_country = st.session_state.get("_dest_country", "All countries")
-    results_heading = f"Destination — {selected_country}" if selected_country != "All countries" else "Destination"
+    selected_countries = st.session_state.get("_dest_country", [])
+    if selected_countries:
+        results_heading = f"Destination — {', '.join(selected_countries)}"
+    else:
+        results_heading = "Destination"
 
 st.markdown(
     f'<p class="results-title">{results_heading} &nbsp;·&nbsp; '
@@ -933,6 +1114,33 @@ st.markdown(
     '</div>',
     unsafe_allow_html=True,
 )
+
+# ─── KPI stat row (current filtered selection) ───────────────────────────────
+kpi_avg_temp  = filtered_destinations["avg_temp_c"].mean()
+kpi_avg_aqi   = filtered_destinations["avg_aqi"].mean()
+kpi_best_score = filtered_destinations[score_col].max()
+kpi_days      = int(filtered_destinations["total_days"].max())
+
+st.markdown(f"""
+<div class="kpi-row">
+  <div class="kpi-card">
+    <div class="kpi-label">☀️ Avg temp</div>
+    <div class="kpi-value">{kpi_avg_temp:.1f}°C</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">🌫️ Avg AQI</div>
+    <div class="kpi-value">{kpi_avg_aqi:.0f} <span style="font-size:0.75rem;font-weight:500;color:#6B8794;">({aqi_label(kpi_avg_aqi)})</span></div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">🏆 Best {selected_type} score</div>
+    <div class="kpi-value">{kpi_best_score:.0f} / 100</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">📅 Days of data</div>
+    <div class="kpi-value">{kpi_days}</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
 
 # ─── Sort & rank ─────────────────────────────────────────────────────────────
@@ -968,6 +1176,38 @@ def hex_to_rgba(hex_color: str, alpha: float) -> str:
     return f"rgba({r},{g},{b},{alpha})"
 
 
+# ─── Forecast icon helper ──────────────────────────────────────────────────────
+# stg_forecast_daily has no weather_code (sky condition) field, only precip /
+# snow / wind / temp, so the icon is an estimate derived from those — not a
+# true cloud-cover read. Flagged to the user in the UI caption.
+def forecast_icon(row: pd.Series) -> tuple[str, str]:
+    if row["snowfall_sum"] > 0:
+        return "❄️", "Snow"
+    if row["rain_sum"] >= 5 or row["precipitation_sum"] >= 5:
+        return "🌧️", "Rain"
+    if row["rain_sum"] > 0 or row["precipitation_sum"] > 0:
+        return "🌦️", "Showers"
+    if row["wind_speed_10m_max"] >= 45:
+        return "🌬️", "Windy"
+    return "☀️", "Clear"
+
+
+# ─── Shared Plotly theme — keeps gridlines/fonts consistent with the rest ──
+# of the page (gauge + radar already styled this way; trend/heatmap/map charts
+# used to fall back to Plotly defaults, which is what made them look bolted on).
+CHART_FONT = dict(family="Inter", size=11, color="#0E3A4D")
+
+
+def themed(fig: go.Figure, **layout_kwargs) -> go.Figure:
+    fig.update_xaxes(gridcolor="#E2E8F0", linecolor="#E2E8F0", zerolinecolor="#E2E8F0",
+                      tickfont=dict(family="Inter", size=10, color="#6B8794"))
+    fig.update_yaxes(gridcolor="#E2E8F0", linecolor="#E2E8F0", zerolinecolor="#E2E8F0",
+                      tickfont=dict(family="Inter", size=10, color="#6B8794"))
+    fig.update_layout(font=CHART_FONT, paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF",
+                       **layout_kwargs)
+    return fig
+
+
 # ─── Featured best-match card ────────────────────────────────────────────────
 st.markdown('<div style="margin-top:20px;margin-bottom:4px;">', unsafe_allow_html=True)
 
@@ -991,7 +1231,7 @@ with featured_left:
     <div class="featured-photo-scrim"></div>
   </div>
   <div class="featured-info">
-    <p class="featured-eyebrow">✦ BEST MATCH FOR {selected_type.upper()}</p>
+    <p class="featured-eyebrow">✦ {'TOP DESTINATION' if filter_mode == 'destination' else f'SORTED BY {st.session_state.sort_attr.upper()}' if filter_mode == 'sort' else f'BEST MATCH FOR {selected_type.upper()}'}</p>
     <p class="featured-city">{top["city_name"]}</p>
     <p class="featured-zone">{top_city_zone} · {top["country"]}</p>
     <span class="badge badge-top">🏆 Top match</span>
@@ -999,7 +1239,7 @@ with featured_left:
       <div class="chip">☀️ {top['avg_temp_c']:.1f}°C avg temp</div>&nbsp;
       <div class="chip">🌧️ {top['avg_daily_precipitation_mm']:.1f} mm/day rain</div>&nbsp;
       <div class="chip">💨 {top['avg_wind_speed_kmh']:.1f} km/h wind</div>&nbsp;
-      <div class="chip">🌫️ AQI {top['avg_aqi']:.0f}</div>
+      <div class="chip">🌫️ AQI {top['avg_aqi']:.0f} ({aqi_label(top['avg_aqi'])})</div>
     </div>
   </div>
 </div>
@@ -1032,27 +1272,6 @@ with featured_right:
                          "below 40–60 km/h = better score"),
     }
 
-    # Build hover tooltip — one block per score component
-    hover_text = (
-        f"<b>{selected_type} — {top['city_name']}: "
-        f"{top_score:.1f} / 100</b><br><br>"
-    )
-    for component_name, score_fn, max_points in active_components:
-        points_earned  = round(min(max(score_fn(top_city_row), 0), max_points), 1)
-        percent_earned  = round(points_earned / max_points * 100)
-        description_fn, component_desc = component_descriptions.get(component_name, (lambda r: "", ""))
-        actual_value = description_fn(top_city_row)
-        hover_text += (
-            f"<b>{component_name}</b>  →  "
-            f"{points_earned:.1f} / {max_points} pts  ({percent_earned}%)<br>"
-            f"<i>{actual_value}  ·  {component_desc}</i><br><br>"
-        )
-    hover_text += (
-        f"<br><b>Recommended if:</b> {meta['thresholds']}<br>"
-        f"<i>{meta['score_desc']}</i>"
-    )
-    hover_text += "<extra></extra>"
-
     fig_gauge = go.Figure(go.Indicator(
         mode="gauge+number",
         value=top_score,
@@ -1078,32 +1297,12 @@ with featured_right:
             },
         },
     ))
-
-    # Invisible full-area scatter — triggers rich hover anywhere over the gauge
-    fig_gauge.add_trace(go.Scatter(
-        x=[0.5], y=[0.35],
-        mode="markers",
-        marker=dict(size=280, opacity=0, color="rgba(0,0,0,0)"),
-        hovertemplate=hover_text,
-        hoverlabel=dict(
-            bgcolor="white",
-            bordercolor="#218208",
-            font=dict(size=11, family="Inter", color="#0E3A4D"),
-            align="left",
-        ),
-        showlegend=False,
-        xaxis="x",
-        yaxis="y",
-    ))
     fig_gauge.update_layout(
         paper_bgcolor="#FFFFFF",
         plot_bgcolor="#FFFFFF",
         margin=dict(l=10, r=10, t=50, b=10),
         height=340,
-        xaxis=dict(visible=False, range=[0, 1], fixedrange=True,
-                   zeroline=False, showgrid=False),
-        yaxis=dict(visible=False, range=[0, 1], fixedrange=True,
-                   zeroline=False, showgrid=False),
+
     )
     st.markdown(
         '<div style="background:#FFFFFF;border-radius:14px;'
@@ -1111,14 +1310,147 @@ with featured_right:
         unsafe_allow_html=True,
     )
     st.plotly_chart(fig_gauge, use_container_width=True)
-    st.caption("ℹ️ Hover over the gauge to see the score breakdown.")
+
+    # Plain-English verdict: identify the strongest and weakest components
+    if active_components:
+        _comp_scores = [
+            (name, round(min(max(fn(top_city_row), 0), mx), 1), mx)
+            for name, fn, mx in active_components
+        ]
+        _best  = max(_comp_scores, key=lambda x: x[1] / x[2])
+        _worst = min(_comp_scores, key=lambda x: x[1] / x[2])
+        _best_pct  = round(_best[1]  / _best[2]  * 100)
+        _worst_pct = round(_worst[1] / _worst[2] * 100)
+        st.markdown(
+            f'<p style="font-family:Inter,sans-serif;font-size:0.8rem;'
+            f'color:#6B8794;padding:0 4px 8px 4px;margin:0;">'
+            f'<b style="color:#0E3A4D;">Strong:</b> {_best[0]} ({_best_pct}% of max pts)'
+            f' &nbsp;·&nbsp; '
+            f'<b style="color:#0E3A4D;">Held back by:</b> {_worst[0]} ({_worst_pct}% of max pts)'
+            f'</p>',
+            unsafe_allow_html=True,
+        )
+
     st.markdown("</div>", unsafe_allow_html=True)
 
 st.markdown("</div>", unsafe_allow_html=True)
 
 
+# ─── 7-day forecast strip (top match city) ───────────────────────────────────
+top_forecast = (
+    forecast_df[forecast_df["location_id"] == top["location_id"]]
+    .sort_values("date")
+    .head(7)
+)
+
+if not top_forecast.empty:
+    forecast_extracted = top_forecast["extracted_at"].max()
+    extracted_dt = pd.to_datetime(forecast_extracted)
+    extracted_label = extracted_dt.strftime("%d %b %Y") if pd.notna(forecast_extracted) else "—"
+
+    # Staleness: how many days since the forecast was pulled
+    days_stale = (pd.Timestamp.now(tz=extracted_dt.tzinfo) - extracted_dt).days if pd.notna(forecast_extracted) else 0
+
+    st.markdown(
+        f'<p class="section-heading" style="margin-top:0;">'
+        f'Forecast — {top["city_name"]} '
+        f'<span style="font-size:0.75rem;font-weight:400;color:#6B8794;">'
+        f'(as of {extracted_label})</span></p>',
+        unsafe_allow_html=True,
+    )
+
+    if days_stale > 2:
+        st.warning(
+            f"⚠️ This forecast was pulled {days_stale} days ago ({extracted_label}). "
+            "Re-run `uv run python scripts/extract_open_meteo.py` then `uv run dbt build` to refresh.",
+            icon=None,
+        )
+
+    forecast_cards_html = []
+    for _, frow in top_forecast.iterrows():
+        icon, condition = forecast_icon(frow)
+        # Always show the real date — never label a past date as "Today"
+        day_label = frow["date"].strftime("%a")
+        date_label = frow["date"].strftime("%d %b")
+        today_class = " is-today" if frow["date"].date() == extracted_dt.date() else ""
+        if today_class:
+            day_label = "Extracted"
+        rain_html = (
+            f'<div class="forecast-rain">💧 {frow["precipitation_sum"]:.1f} mm</div>'
+            if frow["precipitation_sum"] > 0 else ""
+        )
+        forecast_cards_html.append(f"""
+<div class="forecast-card{today_class}">
+  <div class="forecast-day">{day_label}</div>
+  <div class="forecast-date">{date_label}</div>
+  <div class="forecast-icon">{icon}</div>
+  <div class="forecast-cond">{condition}</div>
+  <div class="forecast-temp">{frow['temperature_2m_max']:.0f}°<span class="lo"> / {frow['temperature_2m_min']:.0f}°</span></div>
+  {rain_html}
+</div>""")
+    st.markdown(
+        f'<div class="forecast-strip">{"".join(forecast_cards_html)}</div>',
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        "ℹ️ Icons estimated from forecasted rain/snow/wind (no sky-condition code available). "
+        "Highlighted card = date of extraction."
+    )
+
+
 # ─── Top 3 cards + radar (inline) ──────────────────────────────────────────────────────────────────────────────
 top_3_cities = ranked.head(3)
+
+# "Compare cities" sync strategy
+# ─────────────────────────────
+# We only auto-reset when the pool of AVAILABLE cities actually changes
+# (i.e. the user changed the top filter). Between resets the user can freely
+# add/remove cities from compare — we never override their edits mid-session.
+# Tracking _ranked_key_for_compare (the frozenset of cities at last reset) lets
+# us detect "filter changed" without fighting the user's in-session edits.
+
+_dest_cities_picked = (
+    st.session_state.get("_dest_cities", [])
+    if filter_mode == "destination"
+    else []
+)
+
+# Default: mirror dest-selected cities exactly; else top-3 of ranked view
+if _dest_cities_picked:
+    default_compare = [c for c in _dest_cities_picked if c in ranked["city_name"].values]
+else:
+    default_compare = ranked["city_name"].head(3).tolist()
+
+# Include ranking context so compare resets when holiday type or sort changes,
+# not only when the pool of available cities changes.
+_curr_ranked_key = (
+    frozenset(ranked["city_name"]),
+    filter_mode,
+    selected_type,
+    st.session_state.sort_attr,
+)
+_prev_ranked_key = st.session_state.get("_ranked_key_for_compare", None)
+_current_compare = set(st.session_state.get("_compare_cities", []))
+_ranked_city_set = frozenset(ranked["city_name"])
+
+_need_reset = (
+    "_compare_cities" not in st.session_state                   # first load
+    or not _current_compare.issubset(_ranked_city_set)          # stale city
+    or _prev_ranked_key != _curr_ranked_key                     # context changed
+)
+if _need_reset:
+    st.session_state["_compare_cities"] = default_compare
+    st.session_state["_ranked_key_for_compare"] = _curr_ranked_key
+
+_cmp_col, _ = st.columns([3, 2])
+with _cmp_col:
+    compare_cities = st.multiselect(
+        "Compare cities (radar + daily trends below)",
+        ranked["city_name"].tolist(),
+        key="_compare_cities",
+    )
+if not compare_cities:
+    compare_cities = default_compare
 
 cards_col, radar_col = st.columns([5, 3], gap="medium")
 
@@ -1178,7 +1510,10 @@ with cards_col:
                     f'</div></div>'
                 )
 
-            aqi_display = f"{r['avg_aqi']:.0f}" if pd.notna(r["avg_aqi"]) else "—"
+            aqi_display = (
+                f"{r['avg_aqi']:.0f} ({aqi_label(r['avg_aqi'])})"
+                if pd.notna(r["avg_aqi"]) else "—"
+            )
             st.markdown(f"""
 <div class="dest-card">
   {card_image_html}
@@ -1206,220 +1541,352 @@ with radar_col:
         'City profiles — all holiday types</p>',
         unsafe_allow_html=True,
     )
-    radar_city_names = ranked["city_name"].head(3).tolist()
-    radar_data     = filtered_destinations[filtered_destinations["city_name"].isin(radar_city_names)].copy()
+    bar_city_names = compare_cities
+    bar_data = filtered_destinations[
+        filtered_destinations["city_name"].isin(bar_city_names)
+    ].copy()
 
-    radar_labels = [c[0] for c in RADAR_CATS]
-    radar_score_cols   = [c[1] for c in RADAR_CATS]
+    bar_labels = [c[0] for c in RADAR_CATS]
+    bar_score_cols = [c[1] for c in RADAR_CATS]
 
-    fig_radar = go.Figure()
-    for city_index, city_name in enumerate(radar_city_names):
-        city_row = radar_data[radar_data["city_name"] == city_name]
+    fig_hbar = go.Figure()
+    for city_index, city_name in enumerate(bar_city_names):
+        city_row = bar_data[bar_data["city_name"] == city_name]
         if city_row.empty:
             continue
         city_row = city_row.iloc[0]
-        radar_scores = [float(city_row[col_name]) for col_name in radar_score_cols]
-        closed_scores = radar_scores + [radar_scores[0]]
-        closed_labels = radar_labels + [radar_labels[0]]
-        city_color  = CITY_PALETTE[city_index % len(CITY_PALETTE)]
-        fill_color = hex_to_rgba(city_color, 0.12)
-        fig_radar.add_trace(go.Scatterpolar(
-            r=closed_scores,
-            theta=closed_labels,
-            fill="toself",
-            fillcolor=fill_color,
-            line=dict(color=city_color, width=2),
+        scores = [float(city_row[col]) for col in bar_score_cols]
+        city_color = CITY_COMPARE_PALETTE[city_index % len(CITY_COMPARE_PALETTE)]
+        fig_hbar.add_trace(go.Bar(
             name=city_name,
-            hovertemplate="%{theta}: %{r:.1f}/100<extra>" + city_name + "</extra>",
+            y=bar_labels,
+            x=scores,
+            orientation="h",
+            marker_color=city_color,
+            opacity=0.85,
+            hovertemplate="%{y}: %{x:.1f}/100<extra>" + city_name + "</extra>",
         ))
 
-    fig_radar.update_layout(
-        polar=dict(
-            radialaxis=dict(
-                visible=True,
-                range=[0, 100],
-                tickvals=[25, 50, 75, 100],
-                tickfont=dict(size=8, family="Inter", color="#6B8794"),
-                gridcolor="#E2E8F0",
-                linecolor="#E2E8F0",
-            ),
-            angularaxis=dict(
-                tickfont=dict(size=12, family="Inter", color="#0E3A4D"),
-                gridcolor="#E2E8F0",
-                linecolor="#E2E8F0",
-            ),
-            bgcolor="#FFFFFF",
-        ),
-        showlegend=True,
+    themed(
+        fig_hbar,
+        barmode="group",
+        height=320,
+        margin=dict(l=0, r=0, t=40, b=10),
+        xaxis=dict(range=[0, 100], title="Score (0–100)"),
+        yaxis=dict(autorange="reversed"),
         legend=dict(
             orientation="h",
-            yanchor="bottom", y=-0.14,
-            xanchor="center", x=0.5,
+            yanchor="bottom", y=1.02,
+            xanchor="left", x=0,
             font=dict(size=10, family="Inter"),
         ),
-        height=300,
-        margin=dict(l=20, r=20, t=5, b=48),
-        paper_bgcolor="#FFFFFF",
-        plot_bgcolor="#FFFFFF",
+        showlegend=True,
     )
-    st.plotly_chart(fig_radar, use_container_width=True)
+    st.plotly_chart(fig_hbar, use_container_width=True, config={"displayModeBar": False})
 
+
+# ─── Map view ─────────────────────────────────────────────────────────────────
+st.markdown(
+    f'<p class="section-heading">Map view — {selected_type}</p>',
+    unsafe_allow_html=True,
+)
+map_data = filtered_destinations.merge(locations_df, on="location_id", how="left")
+
+with st.container(border=True, key="map_card"):
+    fig_map = px.scatter_map(
+        map_data,
+        lat="latitude",
+        lon="longitude",
+        color=score_col,
+        size=score_col,
+        size_max=22,
+        hover_name="city_name",
+        text="city_name",
+        hover_data={
+            "country": True,
+            "avg_temp_c": ":.1f",
+            score_col: ":.1f",
+            "latitude": False,
+            "longitude": False,
+        },
+        color_continuous_scale=["#D0EEF4", "#4FC3D9", "#218208"],
+        range_color=[0, 100],
+        labels={score_col: f"{selected_type} score"},
+        map_style="open-street-map",
+        zoom=3.2,
+        center={"lat": 50, "lon": 8},
+    )
+    fig_map.update_traces(
+        marker=dict(opacity=0.85),
+        textposition="top center",
+        mode="markers+text",
+    )
+    fig_map.update_layout(
+        height=460,
+        margin=dict(l=0, r=0, t=0, b=0),
+        paper_bgcolor="#FFFFFF",
+        font=CHART_FONT,
+        coloraxis_colorbar=dict(title=f"{selected_type}<br>score", thickness=12),
+    )
+    st.plotly_chart(fig_map, use_container_width=True, config={"scrollZoom": True})
+    st.caption(f"ℹ️ Bubble size & color = {selected_type} score for the current filter.")
+
+
+# ─── Conditions breakdown ─────────────────────────────────────────────────────
+_compare_subtitle = " · ".join(compare_cities) if compare_cities else ""
+st.markdown(
+    f'<p class="section-heading">Conditions breakdown'
+    f'<span style="font-size:0.78rem;font-weight:400;color:#6B8794;margin-left:10px;">{_compare_subtitle}</span>'
+    f'</p>',
+    unsafe_allow_html=True,
+)
+
+conditions_data = filtered_destinations[
+    filtered_destinations["city_name"].isin(compare_cities)
+].copy()
+
+if not conditions_data.empty:
+    conditions_data = conditions_data.copy()
+
+    scatter_col, cards_col = st.columns([3, 2], gap="large")
+
+    with scatter_col:
+        with st.container(border=True):
+            # Scatter: x = avg temp, y = avg AQI, bubble size = comfortable day %,
+            # color = avg daily precipitation. Immediately shows which cities are
+            # warm/clean/dry (bottom-right, large bubble) vs cool/rainy/polluted.
+            bubble_sizes = (conditions_data["comfortable_day_pct"] / 100 * 60 + 10).tolist()
+
+            fig_cond = go.Figure()
+            for idx, (_, r) in enumerate(conditions_data.iterrows()):
+                city_color = CITY_COMPARE_PALETTE[idx % len(CITY_COMPARE_PALETTE)]
+                fig_cond.add_trace(go.Scatter(
+                    x=[r["avg_temp_c"]],
+                    y=[r["avg_aqi"]],
+                    mode="markers+text",
+                    name=r["city_name"],
+                    text=[r["city_name"]],
+                    textposition="top center",
+                    textfont=dict(size=11, family="Inter", color="#0E3A4D"),
+                    marker=dict(
+                        size=bubble_sizes[idx],
+                        color=city_color,
+                        opacity=0.82,
+                        line=dict(width=2, color="#FFFFFF"),
+                    ),
+                    hovertemplate=(
+                        f"<b>{r['city_name']}</b><br>"
+                        f"Avg temp: {r['avg_temp_c']:.1f}°C<br>"
+                        f"Avg AQI: {r['avg_aqi']:.0f} ({aqi_label(r['avg_aqi'])})<br>"
+                        f"Comfortable days: {r['comfortable_day_pct']:.0f}%<br>"
+                        f"Avg rain: {r['avg_daily_precipitation_mm']:.1f} mm/day"
+                        "<extra></extra>"
+                    ),
+                ))
+
+            themed(
+                fig_cond,
+                height=320,
+                margin=dict(l=0, r=0, t=10, b=0),
+                showlegend=False,
+                xaxis=dict(title="Avg temperature (°C)"),
+                yaxis=dict(title="Avg AQI ↑ cleaner air", autorange="reversed"),
+            )
+            st.plotly_chart(fig_cond, use_container_width=True)
+            st.caption("Bubble size = % comfortable days · Bottom-right = warm & clean air")
+
+    with cards_col:
+        st.markdown(
+            '<p class="chart-title" style="margin-bottom:12px;">City weather profile</p>',
+            unsafe_allow_html=True,
+        )
+        for _, r in conditions_data.iterrows():
+            aqi_color = "#218208" if r["avg_aqi"] < 30 else "#FFC83D" if r["avg_aqi"] < 60 else "#FF6B5B"
+            st.markdown(f"""
+<div class="kpi-card" style="margin-bottom:10px;">
+  <div style="font-family:'Poppins',sans-serif;font-size:0.85rem;font-weight:700;color:#0E3A4D;margin-bottom:8px;">{r['city_name']}</div>
+  <div style="display:flex;gap:16px;flex-wrap:wrap;">
+    <div><div class="kpi-label">Temp range</div><div style="font-family:'Poppins',sans-serif;font-size:0.9rem;font-weight:700;color:#0E3A4D;">{r['min_temp_c']:.0f}° – {r['max_temp_c']:.0f}°C</div></div>
+    <div><div class="kpi-label">Comfortable</div><div style="font-family:'Poppins',sans-serif;font-size:0.9rem;font-weight:700;color:#218208;">{r['comfortable_day_pct']:.0f}%</div></div>
+    <div><div class="kpi-label">Avg AQI</div><div style="font-family:'Poppins',sans-serif;font-size:0.9rem;font-weight:700;color:{aqi_color};">{r['avg_aqi']:.0f} <span style="font-size:0.72rem;font-weight:500;">({aqi_label(r['avg_aqi'])})</span></div></div>
+    <div><div class="kpi-label">Avg rain</div><div style="font-family:'Poppins',sans-serif;font-size:0.9rem;font-weight:700;color:#0E3A4D;">{r['avg_daily_precipitation_mm']:.1f} mm</div></div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
 
 # ─── Daily weather section ────────────────────────────────────────────────────
-st.markdown('<p class="section-heading">Daily weather trends</p>', unsafe_allow_html=True)
+st.markdown(
+    f'<p class="section-heading">Daily weather trends'
+    f'<span style="font-size:0.78rem;font-weight:400;color:#6B8794;margin-left:10px;">{_compare_subtitle}</span>'
+    f'</p>',
+    unsafe_allow_html=True,
+)
 
-chart_cities = ranked["city_name"].head(3).tolist()
+chart_cities = compare_cities
 chart_data = filtered_daily[filtered_daily["city_name"].isin(chart_cities)].copy()
 
 legend_style = dict(orientation="h", yanchor="bottom", y=1.02,
                   xanchor="right", x=1, font=dict(size=11, family="Inter"))
-chart_layout = dict(margin=dict(l=0, r=0, t=10, b=0), height=340,
-                     plot_bgcolor="#FFFFFF", legend=legend_style)
+chart_layout = dict(margin=dict(l=0, r=0, t=10, b=0), height=380, legend=legend_style)
 
-temp_col, precip_col = st.columns(2, gap="medium")
+_has_snow = not chart_data.empty and chart_data["snowfall_sum"].sum() > 0
+_tab_labels = ["🌡️ Temperature", "🌧️ Precipitation", "💨 Wind"]
+if _has_snow:
+    _tab_labels.append("❄️ Snow")
+_tabs = st.tabs(_tab_labels)
+temp_tab, precip_tab, wind_tab = _tabs[0], _tabs[1], _tabs[2]
+snow_tab = _tabs[3] if _has_snow else None
 
-with temp_col:
-    st.markdown(
-        '<p class="chart-title">'
-        'Temperature range (°C) — min / mean / max'
-        '</p>',
-        unsafe_allow_html=True,
-    )
-    if not chart_data.empty:
-        fig_temp = go.Figure()
-        for city_index, city_name in enumerate(chart_cities):
-            daily_data    = chart_data[chart_data["city_name"] == city_name].sort_values("date")
-            city_color = CITY_PALETTE[city_index % len(CITY_PALETTE)]
-            fill_color  = hex_to_rgba(city_color, 0.15)
-            fig_temp.add_trace(go.Scatter(
-                x=daily_data["date"], y=daily_data["temperature_2m_max"],
-                mode="lines", line=dict(width=0),
-                showlegend=False, name=f"{city_name} max",
-            ))
-            fig_temp.add_trace(go.Scatter(
-                x=daily_data["date"], y=daily_data["temperature_2m_min"],
-                mode="lines", line=dict(width=0),
-                fill="tonexty", fillcolor=fill_color,
-                showlegend=False, name=f"{city_name} min",
-            ))
-            fig_temp.add_trace(go.Scatter(
-                x=daily_data["date"], y=daily_data["temperature_2m_mean"],
-                mode="lines", line=dict(color=city_color, width=2),
-                name=city_name,
-            ))
-        fig_temp.update_layout(
-            **chart_layout,
-            template="plotly_white",
-            yaxis_title="Temp (°C)",
-            xaxis_title="",
+with temp_tab:
+    with st.container(border=True):
+        st.markdown(
+            '<p class="chart-title">Temperature range (°C) — min / mean / max</p>',
+            unsafe_allow_html=True,
         )
-        st.plotly_chart(fig_temp, use_container_width=True)
+        if not chart_data.empty:
+            fig_temp = go.Figure()
+            for city_index, city_name in enumerate(chart_cities):
+                daily_data = chart_data[chart_data["city_name"] == city_name].sort_values("date")
+                city_color = CITY_COMPARE_PALETTE[city_index % len(CITY_COMPARE_PALETTE)]
+                fill_color = hex_to_rgba(city_color, 0.15)
+                fig_temp.add_trace(go.Scatter(
+                    x=daily_data["date"], y=daily_data["temperature_2m_max"],
+                    mode="lines", line=dict(width=0),
+                    showlegend=False, name=f"{city_name} max",
+                ))
+                fig_temp.add_trace(go.Scatter(
+                    x=daily_data["date"], y=daily_data["temperature_2m_min"],
+                    mode="lines", line=dict(width=0),
+                    fill="tonexty", fillcolor=fill_color,
+                    showlegend=False, name=f"{city_name} min",
+                ))
+                fig_temp.add_trace(go.Scatter(
+                    x=daily_data["date"], y=daily_data["temperature_2m_mean"],
+                    mode="lines", line=dict(color=city_color, width=2),
+                    name=city_name,
+                ))
+            themed(fig_temp, **chart_layout, yaxis_title="Temp (°C)", xaxis_title="")
+            st.plotly_chart(fig_temp, use_container_width=True)
+        else:
+            st.info("No data for the selected cities.")
 
-with precip_col:
-    st.markdown(
-        '<p class="chart-title">'
-        'Daily precipitation (mm)'
-        '</p>',
-        unsafe_allow_html=True,
-    )
-    if not chart_data.empty:
-        fig_precip = px.bar(
-            chart_data,
-            x="date",
-            y="precipitation_sum",
-            color="city_name",
-            barmode="overlay",
-            opacity=0.65,
-            color_discrete_sequence=CITY_PALETTE,
-            labels={"date": "", "precipitation_sum": "Precipitation (mm)", "city_name": "City"},
-            template="plotly_white",
+with precip_tab:
+    with st.container(border=True):
+        st.markdown(
+            '<p class="chart-title">Daily precipitation (mm)</p>',
+            unsafe_allow_html=True,
         )
-        fig_precip.update_layout(**chart_layout)
-        st.plotly_chart(fig_precip, use_container_width=True)
+        if not chart_data.empty:
+            fig_precip = px.bar(
+                chart_data, x="date", y="precipitation_sum", color="city_name",
+                barmode="overlay", opacity=0.65,
+                color_discrete_sequence=CITY_COMPARE_PALETTE,
+                labels={"date": "", "precipitation_sum": "Precipitation (mm)", "city_name": "City"},
+            )
+            themed(fig_precip, **chart_layout)
+            st.plotly_chart(fig_precip, use_container_width=True)
+        else:
+            st.info("No data for the selected cities.")
 
-wind_col, snow_col = st.columns(2, gap="medium")
-
-with wind_col:
-    st.markdown(
-        '<p class="chart-title">'
-        'Max wind speed (km/h)'
-        '</p>',
-        unsafe_allow_html=True,
-    )
-    if not chart_data.empty:
-        fig_wind = px.line(
-            chart_data,
-            x="date",
-            y="wind_speed_10m_max",
-            color="city_name",
-            color_discrete_sequence=CITY_PALETTE,
-            labels={"date": "", "wind_speed_10m_max": "Max Wind (km/h)", "city_name": "City"},
-            template="plotly_white",
+with wind_tab:
+    with st.container(border=True):
+        st.markdown(
+            '<p class="chart-title">Max wind speed (km/h)</p>',
+            unsafe_allow_html=True,
         )
-        fig_wind.update_traces(line_width=2)
-        fig_wind.update_layout(**chart_layout)
-        st.plotly_chart(fig_wind, use_container_width=True)
+        if not chart_data.empty:
+            fig_wind = px.line(
+                chart_data, x="date", y="wind_speed_10m_max", color="city_name",
+                color_discrete_sequence=CITY_COMPARE_PALETTE,
+                labels={"date": "", "wind_speed_10m_max": "Max Wind (km/h)", "city_name": "City"},
+            )
+            fig_wind.update_traces(line_width=2)
+            themed(fig_wind, **chart_layout)
+            st.plotly_chart(fig_wind, use_container_width=True)
+        else:
+            st.info("No data for the selected cities.")
 
-with snow_col:
-    st.markdown(
-        '<p class="chart-title">'
-        'Daily snowfall (cm)'
-        '</p>',
-        unsafe_allow_html=True,
-    )
-    if not chart_data.empty:
-        fig_snow = px.bar(
-            chart_data,
-            x="date",
-            y="snowfall_sum",
-            color="city_name",
-            barmode="overlay",
-            opacity=0.65,
-            color_discrete_sequence=CITY_PALETTE,
-            labels={"date": "", "snowfall_sum": "Snowfall (cm)", "city_name": "City"},
-            template="plotly_white",
-        )
-        fig_snow.update_layout(**chart_layout)
-        st.plotly_chart(fig_snow, use_container_width=True)
+if snow_tab is not None:
+    with snow_tab:
+        with st.container(border=True):
+            st.markdown(
+                '<p class="chart-title">Daily snowfall (cm)</p>',
+                unsafe_allow_html=True,
+            )
+            fig_snow = px.bar(
+                chart_data, x="date", y="snowfall_sum", color="city_name",
+                barmode="overlay", opacity=0.65,
+                color_discrete_sequence=CITY_COMPARE_PALETTE,
+                labels={"date": "", "snowfall_sum": "Snowfall (cm)", "city_name": "City"},
+            )
+            themed(fig_snow, **chart_layout)
+            st.plotly_chart(fig_snow, use_container_width=True)
 
-# All-scores comparison chart
+# All-scores heatmap
 st.markdown(
-    '<p style="font-family:Inter;font-weight:600;color:#0E3A4D;margin:20px 0 8px 0;">'
-    'All holiday-type scores compared'
-    '</p>',
+    '<p class="section-heading">All holiday-type scores compared</p>',
     unsafe_allow_html=True,
 )
-all_scores = filtered_destinations.melt(
-    id_vars=["city_name"],
-    value_vars=SCORE_COLS,
-    var_name="activity",
-    value_name="score",
-)
-all_scores["activity"] = all_scores["activity"].map(SCORE_LABELS)
-all_scores["label"] = all_scores["city_name"].apply(
-    lambda c: c + " (" + filtered_destinations.loc[filtered_destinations["city_name"] == c, "country"].values[0][:3] + ")"
-)
-fig_all = px.bar(
-    all_scores,
-    x="label",
-    y="score",
-    color="activity",
-    barmode="group",
-    color_discrete_sequence=TYPE_PALETTE,
-    labels={"label": "", "score": "Score (0–100)", "activity": "Holiday Type"},
-    template="plotly_white",
-)
-fig_all.update_layout(
-    xaxis_tickangle=-25,
-    yaxis_range=[0, 100],
-    height=340,
-    margin=dict(l=0, r=0, t=20, b=10),
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
-                font=dict(size=11, family="Inter")),
-    plot_bgcolor="#FFFFFF",
-)
-st.plotly_chart(fig_all, use_container_width=True)
+with st.container(border=True):
+    heat_source = filtered_destinations.set_index("city_name")[SCORE_COLS].rename(columns=SCORE_LABELS)
+    heat_city_order = [c for c in ranked["city_name"] if c in heat_source.index]
+    heat_source = heat_source.loc[heat_city_order]
+
+    # Color by per-column rank (not raw score) so each holiday-type column
+    # always has one clear dark-green winner, regardless of score clustering.
+    n_cities_heat = len(heat_source)
+    rank_df = heat_source.rank(ascending=False, method="first").astype(int)
+
+    def _ordinal(n: int) -> str:
+        return f"{n}{'st' if n==1 else 'nd' if n==2 else 'rd' if n==3 else 'th'}"
+
+    # Build hover text: "Dubrovnik · City Break: 67 pts — 5th of 12"
+    hover_text = [
+        [
+            f"<b>{heat_source.index[i]} · {col}</b><br>"
+            f"Score: {heat_source.values[i, j]:.0f} / 100<br>"
+            f"Ranking: {_ordinal(rank_df.values[i, j])} of {n_cities_heat}"
+            for j, col in enumerate(heat_source.columns)
+        ]
+        for i in range(n_cities_heat)
+    ]
+
+    # Cell label: trophy for #1 in column, plain score otherwise
+    cell_text = [
+        [
+            f"🏆{heat_source.values[i, j]:.0f}" if rank_df.values[i, j] == 1
+            else f"{heat_source.values[i, j]:.0f}"
+            for j in range(len(heat_source.columns))
+        ]
+        for i in range(n_cities_heat)
+    ]
+
+    # z = normalised rank 0→1 (0 = best = dark green, 1 = worst = light)
+    norm_rank = (rank_df - 1) / max(n_cities_heat - 1, 1)
+
+    fig_heat = go.Figure(data=go.Heatmap(
+        z=norm_rank.values,
+        x=heat_source.columns.tolist(),
+        y=heat_source.index.tolist(),
+        zmin=0, zmax=1,
+        colorscale=[[0, "#218208"], [0.4, "#4FC3D9"], [1, "#F0F9FF"]],
+        text=cell_text,
+        texttemplate="%{text}",
+        textfont=dict(size=11, family="Inter", color="#0E3A4D"),
+        hovertemplate="%{customdata}<extra></extra>",
+        customdata=hover_text,
+        showscale=False,
+        xgap=4, ygap=4,
+    ))
+    themed(
+        fig_heat,
+        height=max(320, 32 * len(heat_source) + 80),
+        margin=dict(l=0, r=0, t=10, b=10),
+        yaxis=dict(autorange="reversed"),
+    )
+    st.plotly_chart(fig_heat, use_container_width=True)
+    st.caption("ℹ️ Color shows rank within each holiday type — 🏆 = best city for that category. Hover for score + rank.")
 
 
 # ─── Footer ───────────────────────────────────────────────────────────────────
