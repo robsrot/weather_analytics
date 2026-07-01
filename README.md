@@ -6,7 +6,7 @@ An end-to-end analytics engineering project built with dbt, DuckDB, and Streamli
 
 ## Dashboard
 
-> Add your Streamlit Community Cloud link here after deployment.
+> [Streamlit App](https://robsrot-weather-analytics-streamlit-appapp-ew6ilb.streamlit.app/)
 
 ---
 
