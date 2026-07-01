@@ -12,7 +12,6 @@ logs/
 .user.yml
 
 # DuckDB
-*.duckdb
 *.duckdb.wal
 
 # Raw data (regenerate with extract_open_meteo.py)
