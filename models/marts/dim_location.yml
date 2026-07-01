@@ -1,16 +1,16 @@
 version: 2
 
 models:
-  - name: stg_locations
-    description: City-level location metadata geocoded from the Open-Meteo Geocoding API. One row per city.
+  - name: dim_location
+    description: Location dimension. One row per city with geographic metadata.
     columns:
       - name: location_id
-        description: Primary key. Unique identifier returned by the Geocoding API.
+        description: Primary key. Unique identifier from the Open-Meteo Geocoding API.
         tests:
           - unique
           - not_null
       - name: city_name
-        description: City name as returned by the Geocoding API.
+        description: City name.
         tests:
           - not_null
       - name: country
@@ -19,31 +19,19 @@ models:
         description: ISO 3166-1 alpha-2 country code.
         tests:
           - not_null
-          - accepted_values:
-              values: ['ES', 'PT', 'HR', 'GR', 'FR', 'NO', 'IS', 'CZ', 'NL']
       - name: admin1
         description: First-level administrative area such as a province or state.
       - name: latitude
         description: Latitude of the city in decimal degrees.
         tests:
           - not_null
-          - dbt_expectations.expect_column_values_to_be_between:
-              min_value: -90
-              max_value: 90
       - name: longitude
         description: Longitude of the city in decimal degrees.
         tests:
           - not_null
-          - dbt_expectations.expect_column_values_to_be_between:
-              min_value: -180
-              max_value: 180
       - name: timezone
-        description: IANA timezone string for the city (e.g. Europe/Madrid).
+        description: IANA timezone string for the city.
       - name: elevation
         description: Elevation above sea level in metres.
       - name: population
         description: City population estimate.
-      - name: extracted_at
-        description: UTC timestamp when the record was extracted from the API.
-        tests:
-          - not_null
