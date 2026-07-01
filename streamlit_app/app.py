@@ -922,7 +922,7 @@ st.markdown("""
 
 # ─── Session state ────────────────────────────────────────────────────────────
 for state_key, default_value in [
-    ("filter_mode",  "holiday"),
+    ("filter_mode",  None),
     ("holiday_type", HOLIDAY_TYPES[0]),
     ("sort_attr",    list(SORT_OPTIONS.keys())[0]),
 ]:
@@ -937,6 +937,7 @@ if st.session_state.sort_attr not in SORT_OPTIONS:
 def _activate_holiday():
     st.session_state.filter_mode = "holiday"
     st.session_state.holiday_type = st.session_state["_ht_select"]
+    st.session_state["_sort_select"] = None
     st.session_state["_dest_country"] = []
     st.session_state["_dest_cities"] = []
 
@@ -944,18 +945,22 @@ def _activate_holiday():
 def _activate_sort():
     st.session_state.filter_mode = "sort"
     st.session_state.sort_attr = st.session_state["_sort_select"]
+    st.session_state["_ht_select"] = None
     st.session_state["_dest_country"] = []
     st.session_state["_dest_cities"] = []
 
 
 def _on_dest_country_change():
-    """Switch to destination mode; clear city selection when country changes."""
     st.session_state.filter_mode = "destination"
+    st.session_state["_ht_select"] = None
+    st.session_state["_sort_select"] = None
     st.session_state["_dest_cities"] = []
 
 
 def _on_dest_city_change():
     st.session_state.filter_mode = "destination"
+    st.session_state["_ht_select"] = None
+    st.session_state["_sort_select"] = None
 
 
 # ─── Filter bar (single row, 4 equal controls) ───────────────────────────────
@@ -981,12 +986,15 @@ with st.container(border=True, key="filter_bar"):
         )
         holiday_type_index = (
             HOLIDAY_TYPES.index(st.session_state.holiday_type)
-            if st.session_state.holiday_type in HOLIDAY_TYPES else 0
+            if filter_mode == "holiday"
+            and st.session_state.holiday_type in HOLIDAY_TYPES
+            else None
         )
         st.selectbox(
             "Holiday type",
             HOLIDAY_TYPES,
             index=holiday_type_index,
+            placeholder="Select holiday type",
             key="_ht_select",
             label_visibility="collapsed",
             on_change=_activate_holiday,
@@ -1000,14 +1008,17 @@ with st.container(border=True, key="filter_bar"):
             unsafe_allow_html=True,
         )
         sort_option_names = list(SORT_OPTIONS.keys())
-        sort_option_index  = (
+        sort_option_index = (
             sort_option_names.index(st.session_state.sort_attr)
-            if st.session_state.sort_attr in sort_option_names else 0
+            if filter_mode == "sort"
+            and st.session_state.sort_attr in sort_option_names
+            else None
         )
         st.selectbox(
             "Attribute",
             sort_option_names,
             index=sort_option_index,
+            placeholder="Select attribute",
             key="_sort_select",
             label_visibility="collapsed",
             on_change=_activate_sort,
@@ -1086,18 +1097,28 @@ if filtered_destinations.empty:
 
 filtered_daily = daily_df[daily_df["city_name"].isin(filtered_destinations["city_name"])].copy()
 
+# ─── Sort & rank config (needed by KPI row below) ────────────────────────────
+if filter_mode == "sort":
+    sort_column, sort_ascending = SORT_OPTIONS[st.session_state.sort_attr]
+elif filter_mode == "holiday":
+    sort_column, sort_ascending = score_col, False
+else:
+    sort_column, sort_ascending = "city_name", True  # alphabetical when no filter
+
 
 # ─── Results strip ────────────────────────────────────────────────────────────
 if filter_mode == "holiday":
     results_heading = selected_type
 elif filter_mode == "sort":
     results_heading = f"Sorted by {st.session_state.sort_attr}"
-else:
+elif filter_mode == "destination":
     selected_countries = st.session_state.get("_dest_country", [])
-    if selected_countries:
-        results_heading = f"Destination — {', '.join(selected_countries)}"
-    else:
-        results_heading = "Destination"
+    results_heading = (
+        f"Destination — {', '.join(selected_countries)}"
+        if selected_countries else "Destination"
+    )
+else:
+    results_heading = "All destinations"
 
 st.markdown(
     f'<p class="results-title">{results_heading} &nbsp;·&nbsp; '
@@ -1116,10 +1137,23 @@ st.markdown(
 )
 
 # ─── KPI stat row (current filtered selection) ───────────────────────────────
-kpi_avg_temp  = filtered_destinations["avg_temp_c"].mean()
-kpi_avg_aqi   = filtered_destinations["avg_aqi"].mean()
-kpi_best_score = filtered_destinations[score_col].max()
-kpi_days      = int(filtered_destinations["total_days"].max())
+kpi_avg_temp   = filtered_destinations["avg_temp_c"].mean()
+kpi_avg_aqi    = filtered_destinations["avg_aqi"].mean()
+kpi_days       = int(filtered_destinations["total_days"].max())
+kpi_n_dest     = len(filtered_destinations)
+
+if filter_mode == "holiday":
+    kpi_best_score = filtered_destinations[score_col].max()
+    kpi3_label = f"🏆 Best {selected_type} score"
+    kpi3_value = f"{kpi_best_score:.0f} / 100"
+elif filter_mode == "sort":
+    sort_val = filtered_destinations[sort_column]
+    best_val = sort_val.min() if sort_ascending else sort_val.max()
+    kpi3_label = f"{'↓' if sort_ascending else '↑'} Best {st.session_state.sort_attr}"
+    kpi3_value = f"{best_val:.1f}"
+else:
+    kpi3_label = "🗺️ Destinations"
+    kpi3_value = str(kpi_n_dest)
 
 st.markdown(f"""
 <div class="kpi-row">
@@ -1132,8 +1166,8 @@ st.markdown(f"""
     <div class="kpi-value">{kpi_avg_aqi:.0f} <span style="font-size:0.75rem;font-weight:500;color:#6B8794;">({aqi_label(kpi_avg_aqi)})</span></div>
   </div>
   <div class="kpi-card">
-    <div class="kpi-label">🏆 Best {selected_type} score</div>
-    <div class="kpi-value">{kpi_best_score:.0f} / 100</div>
+    <div class="kpi-label">{kpi3_label}</div>
+    <div class="kpi-value">{kpi3_value}</div>
   </div>
   <div class="kpi-card">
     <div class="kpi-label">📅 Days of data</div>
@@ -1142,12 +1176,6 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-
-# ─── Sort & rank ─────────────────────────────────────────────────────────────
-if filter_mode == "sort":
-    sort_column, sort_ascending = SORT_OPTIONS[st.session_state.sort_attr]
-else:
-    sort_column, sort_ascending = score_col, False  # highest score first
 
 ranked = (
     filtered_destinations
@@ -1454,29 +1482,62 @@ if not compare_cities:
 
 cards_col, radar_col = st.columns([5, 3], gap="medium")
 
+_SORT_COL_UNIT = {
+    "avg_temp_c": "°C", "avg_daily_precipitation_mm": "mm/day",
+    "avg_wind_speed_kmh": "km/h", "snow_days": " days", "avg_aqi": " AQI",
+}
+_RANK_MEDALS = {1: "🥇 #1", 2: "🥈 #2", 3: "🥉 #3"}
+
 with cards_col:
+    if filter_mode == "holiday":
+        _top3_heading = f"Top 3 for {selected_type}"
+    elif filter_mode == "sort":
+        _top3_heading = f"Top 3 — {st.session_state.sort_attr}"
+    elif filter_mode == "destination":
+        _top3_heading = f"Showing {min(len(top_3_cities), 3)} of {len(ranked)}"
+    else:
+        _top3_heading = f"All {len(ranked)} destinations (select a filter to rank)"
     st.markdown(
-        f'<p class="section-heading" style="margin-top:0;">'
-        f'Showing top 3 of {len(ranked)} for {selected_type}</p>',
+        f'<p class="section-heading" style="margin-top:0;">{_top3_heading}</p>',
         unsafe_allow_html=True,
     )
     grid_cols = st.columns(min(len(top_3_cities), 3), gap="small")
     for col, (_, r) in zip(grid_cols, top_3_cities.iterrows()):
         with col:
-            city_name  = r["city_name"]
-            city_score  = float(r[score_col])
-            meets_threshold  = bool(r[flag_col])
-            is_best_match   = r["rank"] == 1
+            city_name = r["city_name"]
+            is_best_match = r["rank"] == 1
 
-            if is_best_match:
-                badge_html = '<span class="badge badge-top">🏆 Top match</span>'
-            elif meets_threshold:
-                badge_html = '<span class="badge badge-good">✓ Recommended</span>'
+            if filter_mode == "sort":
+                sort_val = float(r[sort_column])
+                sort_unit = _SORT_COL_UNIT.get(sort_column, "")
+                card_score_label = st.session_state.sort_attr
+                card_score_value = f"{sort_val:.1f}{sort_unit}"
+                rank_pct = max(0, 100 - (r["rank"] - 1) / max(len(ranked) - 1, 1) * 100)
+                fill_color = score_color(rank_pct)
+                score_bar_pct = f"{rank_pct:.0f}%"
+                _rank_int = int(r["rank"])
+                _medal = _RANK_MEDALS.get(_rank_int, f"#{_rank_int}")
+                badge_html = f'<span class="badge badge-top">{_medal}</span>'
+            elif filter_mode == "holiday":
+                city_score = float(r[score_col])
+                meets_threshold = bool(r[flag_col])
+                card_score_label = "Score"
+                card_score_value = f"{city_score:.0f} / 100"
+                fill_color = score_color(city_score)
+                score_bar_pct = f"{city_score:.0f}%"
+                if is_best_match:
+                    badge_html = '<span class="badge badge-top">🏆 Top match</span>'
+                elif meets_threshold:
+                    badge_html = '<span class="badge badge-good">✓ Recommended</span>'
+                else:
+                    badge_html = '<span class="badge badge-low">Not ideal</span>'
             else:
-                badge_html = '<span class="badge badge-low">Not ideal</span>'
-
-            fill_color = score_color(city_score)
-            score_bar_pct   = f"{city_score:.0f}%"
+                city_score = float(r[score_col])
+                card_score_label = "Score"
+                card_score_value = f"{city_score:.0f} / 100"
+                fill_color = "#94A3B8"
+                score_bar_pct = f"{city_score:.0f}%"
+                badge_html = f'<span class="badge badge-low">#{int(r["rank"])}</span>'
 
             city_image = CITY_IMAGES.get(city_name.lower(), "")
             if city_image:
@@ -1519,8 +1580,8 @@ with cards_col:
   {card_image_html}
   <div class="score-section">
 <div class="score-label-row">
-  <span class="score-label">Score</span>
-  <span class="score-value">{city_score:.0f} / 100</span>
+  <span class="score-label">{card_score_label}</span>
+  <span class="score-value">{card_score_value}</span>
 </div>
 <div class="score-track">
   <div class="score-fill" style="width:{score_bar_pct};background:{fill_color};"></div>
@@ -1586,32 +1647,54 @@ with radar_col:
 
 
 # ─── Map view ─────────────────────────────────────────────────────────────────
+map_data = filtered_destinations.merge(locations_df, on="location_id", how="left")
+
+if filter_mode == "sort":
+    _map_color_col = sort_column
+    _map_heading   = f"Map view — {st.session_state.sort_attr}"
+    _map_scale     = (
+        ["#218208", "#4FC3D9", "#D0EEF4"] if sort_ascending
+        else ["#D0EEF4", "#4FC3D9", "#218208"]
+    )
+    _map_range     = [map_data[sort_column].min(), map_data[sort_column].max()]
+    _map_cb_title  = sort_column.replace("_", " ")
+    _map_hover     = {"country": True, "avg_temp_c": ":.1f", sort_column: ":.1f",
+                      "latitude": False, "longitude": False}
+    _map_labels    = {sort_column: st.session_state.sort_attr}
+    _map_caption   = (
+        f"ℹ️ Color = {sort_column.replace('_', ' ')} ({st.session_state.sort_attr}). "
+        f"Bubble size = {selected_type} score."
+    )
+else:
+    _map_color_col = score_col
+    _map_heading   = f"Map view — {selected_type}"
+    _map_scale     = ["#D0EEF4", "#4FC3D9", "#218208"]
+    _map_range     = [0, 100]
+    _map_cb_title  = f"{selected_type}<br>score"
+    _map_hover     = {"country": True, "avg_temp_c": ":.1f", score_col: ":.1f",
+                      "latitude": False, "longitude": False}
+    _map_labels    = {score_col: f"{selected_type} score"}
+    _map_caption   = f"ℹ️ Bubble size & color = {selected_type} score for the current filter."
+
 st.markdown(
-    f'<p class="section-heading">Map view — {selected_type}</p>',
+    f'<p class="section-heading">{_map_heading}</p>',
     unsafe_allow_html=True,
 )
-map_data = filtered_destinations.merge(locations_df, on="location_id", how="left")
 
 with st.container(border=True, key="map_card"):
     fig_map = px.scatter_map(
         map_data,
         lat="latitude",
         lon="longitude",
-        color=score_col,
+        color=_map_color_col,
         size=score_col,
         size_max=22,
         hover_name="city_name",
         text="city_name",
-        hover_data={
-            "country": True,
-            "avg_temp_c": ":.1f",
-            score_col: ":.1f",
-            "latitude": False,
-            "longitude": False,
-        },
-        color_continuous_scale=["#D0EEF4", "#4FC3D9", "#218208"],
-        range_color=[0, 100],
-        labels={score_col: f"{selected_type} score"},
+        hover_data=_map_hover,
+        color_continuous_scale=_map_scale,
+        range_color=_map_range,
+        labels=_map_labels,
         map_style="open-street-map",
         zoom=3.2,
         center={"lat": 50, "lon": 8},
@@ -1626,20 +1709,14 @@ with st.container(border=True, key="map_card"):
         margin=dict(l=0, r=0, t=0, b=0),
         paper_bgcolor="#FFFFFF",
         font=CHART_FONT,
-        coloraxis_colorbar=dict(title=f"{selected_type}<br>score", thickness=12),
+        coloraxis_colorbar=dict(title=_map_cb_title, thickness=12),
     )
     st.plotly_chart(fig_map, use_container_width=True, config={"scrollZoom": True})
-    st.caption(f"ℹ️ Bubble size & color = {selected_type} score for the current filter.")
+    st.caption(_map_caption)
 
 
 # ─── Conditions breakdown ─────────────────────────────────────────────────────
 _compare_subtitle = " · ".join(compare_cities) if compare_cities else ""
-st.markdown(
-    f'<p class="section-heading">Conditions breakdown'
-    f'<span style="font-size:0.78rem;font-weight:400;color:#6B8794;margin-left:10px;">{_compare_subtitle}</span>'
-    f'</p>',
-    unsafe_allow_html=True,
-)
 
 conditions_data = filtered_destinations[
     filtered_destinations["city_name"].isin(compare_cities)
@@ -1651,6 +1728,12 @@ if not conditions_data.empty:
     scatter_col, cards_col = st.columns([3, 2], gap="large")
 
     with scatter_col:
+        st.markdown(
+            f'<p class="section-heading" style="margin-top:0;">Conditions breakdown'
+            f'<span style="font-size:0.78rem;font-weight:400;color:#6B8794;margin-left:10px;">{_compare_subtitle}</span>'
+            f'</p>',
+            unsafe_allow_html=True,
+        )
         with st.container(border=True):
             # Scatter: x = avg temp, y = avg AQI, bubble size = comfortable day %,
             # color = avg daily precipitation. Immediately shows which cities are
@@ -1697,7 +1780,7 @@ if not conditions_data.empty:
 
     with cards_col:
         st.markdown(
-            '<p class="chart-title" style="margin-bottom:12px;">City weather profile</p>',
+            '<p class="section-heading" style="margin-top:0;">City weather profile</p>',
             unsafe_allow_html=True,
         )
         for _, r in conditions_data.iterrows():
