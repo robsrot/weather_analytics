@@ -126,6 +126,30 @@ models:
           - dbt_expectations.expect_column_values_to_be_between:
               min_value: 0
               max_value: 100
+      - name: cultural_score
+        description: >
+          Cultural & Sightseeing suitability score (0–100).
+          Mild temperature component (40 pts): ideal temperature is 20 °C; score falls as temperature deviates by more than 10 °C.
+          Low rain component (25 pts): based on proportion of heavy rain days.
+          Air quality component (20 pts): average AQI above 80 scores zero.
+          Calm wind component (15 pts): average wind speed above 50 km/h scores zero.
+        tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 100
+      - name: wellness_score
+        description: >
+          Wellness & Slow Travel suitability score (0–100).
+          Precise temperature component (35 pts): ideal temperature is 21.5 °C; score falls as temperature deviates by more than 7 °C.
+          Low rain component (25 pts): based on proportion of heavy rain days.
+          Pristine air component (25 pts): average AQI above 50 scores zero.
+          Calm wind component (15 pts): average wind speed above 40 km/h scores zero.
+        tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 100
       - name: is_beach_destination
         description: True when average temperature exceeds 22 °C and fewer than 15% of days had heavy rain.
         tests:
@@ -140,5 +164,17 @@ models:
           - not_null
       - name: is_extreme_sports_destination
         description: True when average wind speed exceeds 30 km/h.
+        tests:
+          - not_null
+      - name: is_cultural_destination
+        description: >
+          True when average temperature is between 14 and 26 °C, average daily precipitation is below 8 mm,
+          average AQI is below 50, and average wind speed is below 30 km/h.
+        tests:
+          - not_null
+      - name: is_wellness_destination
+        description: >
+          True when average temperature is between 17 and 26 °C, average daily precipitation is below 8 mm,
+          average AQI is below 35, and average wind speed is below 25 km/h.
         tests:
           - not_null
